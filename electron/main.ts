@@ -1,5 +1,7 @@
 import { app, BrowserWindow, shell } from 'electron';
 import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { DatabaseService } from './database/connection';
 import { registerLibraryIpc } from './ipc/library.ipc';
 import { registerCoursesIpc } from './ipc/courses.ipc';
@@ -12,10 +14,23 @@ import { registerRcloneIpc } from './ipc/rclone.ipc';
 import { registerSettingsIpc } from './ipc/settings.ipc';
 import { PlaybackService } from './services/playback.service';
 
+// ESM dirname resolution
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Rejection:', reason);
+});
+
 let mainWindow: BrowserWindow | null = null;
 
 async function createWindow() {
-  const preloadPath = path.join(__dirname, 'preload.mjs');
+  const preloadMjs = path.join(__dirname, 'preload.mjs');
+  const preloadJs = path.join(__dirname, 'preload.js');
+  const preloadPath = fs.existsSync(preloadMjs) ? preloadMjs : preloadJs;
 
   mainWindow = new BrowserWindow({
     title: 'StudyStream Desktop',
@@ -38,6 +53,13 @@ async function createWindow() {
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
   });
+
+  // Fallback to guarantee window visibility
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+  }, 1000);
 
   // Handle external links safely
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -62,7 +84,8 @@ async function createWindow() {
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    const indexPath = path.join(__dirname, '../dist/index.html');
+    mainWindow.loadFile(indexPath);
   }
 
   mainWindow.on('closed', () => {
@@ -70,7 +93,7 @@ async function createWindow() {
   });
 }
 
-// Ensure single instance lock
+// Single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
@@ -83,18 +106,19 @@ if (!gotTheLock) {
   });
 
   app.whenReady().then(async () => {
-    // 1. Initialize SQLite Database
     try {
       await DatabaseService.getInstance().initialize();
     } catch (err) {
       console.error('Falha ao inicializar o banco de dados SQLite:', err);
     }
 
-    // 2. Initialize Playback Service
-    PlaybackService.getInstance();
+    try {
+      PlaybackService.getInstance();
+    } catch (err) {
+      console.error('Falha ao inicializar serviço de playback:', err);
+    }
 
-    // 3. Create Desktop Window
-    createWindow();
+    await createWindow();
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -104,8 +128,12 @@ if (!gotTheLock) {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    PlaybackService.getInstance().stop();
-    DatabaseService.getInstance().close();
+    try {
+      PlaybackService.getInstance().stop();
+      DatabaseService.getInstance().close();
+    } catch {
+      // ignore
+    }
     app.quit();
   }
 });

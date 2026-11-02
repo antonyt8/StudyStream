@@ -23,7 +23,25 @@ export class DatabaseService {
   public async initialize(customPath?: string): Promise<void> {
     if (this.db) return;
 
-    this.SQL = await initSqlJs();
+    let wasmBinary: ArrayBuffer | undefined;
+    const candidates = [
+      path.join(process.resourcesPath || '', 'sql-wasm.wasm'),
+      path.join(process.resourcesPath || '', 'app.asar/node_modules/sql.js/dist/sql-wasm.wasm'),
+      path.join(process.cwd(), 'node_modules/sql.js/dist/sql-wasm.wasm'),
+    ];
+    for (const c of candidates) {
+      if (c && fs.existsSync(c)) {
+        try {
+          const buf = fs.readFileSync(c);
+          wasmBinary = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+          break;
+        } catch {
+          // continue
+        }
+      }
+    }
+
+    this.SQL = await initSqlJs(wasmBinary ? { wasmBinary } : {});
 
     if (customPath) {
       this.dbPath = customPath;

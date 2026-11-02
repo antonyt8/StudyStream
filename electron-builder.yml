@@ -13,6 +13,10 @@ files:
   - "!**/*.ts"
   - "!src/**"
 
+extraResources:
+  - from: node_modules/sql.js/dist/sql-wasm.wasm
+    to: sql-wasm.wasm
+
 extraMetadata:
   main: dist-electron/main.js
 
