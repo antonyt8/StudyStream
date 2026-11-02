@@ -2,7 +2,7 @@ import { spawn, ChildProcess } from 'node:child_process';
 import net from 'node:net';
 import path from 'node:path';
 import fs from 'node:fs';
-import { RcloneRemote, RcloneStatus, RcloneItem } from '../types';
+import { RcloneRemote, RcloneStatus, RcloneItem, RcloneDiagnostics } from '../types';
 
 export class RcloneService {
   private static instance: RcloneService | null = null;
@@ -223,11 +223,75 @@ export class RcloneService {
   }
 
   /**
+   * Diagnostic inspection of Rclone installation and remote connection
+   */
+  public async getDiagnostics(
+    executablePath: string = 'rclone',
+    remotePath: string = 'gdrive:'
+  ): Promise<RcloneDiagnostics> {
+    const status = await this.checkStatus(executablePath);
+    let configPath = '';
+    
+    try {
+      configPath = await new Promise<string>((resolve) => {
+        const child = spawn(executablePath, ['config', 'file'], {
+          windowsHide: true,
+          shell: false
+        });
+        let out = '';
+        child.stdout.on('data', d => { out += d.toString(); });
+        child.on('error', () => resolve(''));
+        child.on('close', () => {
+          const lines = out.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+          const found = lines.find(l => l.endsWith('.conf') || l.includes('rclone.conf'));
+          resolve(found || lines[lines.length - 1] || '');
+        });
+      });
+    } catch {
+      configPath = '';
+    }
+
+    if (!status.installed) {
+      return {
+        installed: false,
+        version: '',
+        configPath: '',
+        remotesCount: 0,
+        canConnectDrive: false,
+        message: status.error || 'Rclone não encontrado'
+      };
+    }
+
+    // Measure latency to remotePath
+    const start = Date.now();
+    const access = await this.testRemoteAccess(executablePath, remotePath);
+    const latencyMs = Date.now() - start;
+
+    return {
+      installed: true,
+      version: status.version || 'Detectado',
+      configPath: configPath || 'Padrão do Sistema (%APPDATA%/rclone/rclone.conf)',
+      remotesCount: status.remotes.length,
+      latencyMs: access.success ? latencyMs : undefined,
+      canConnectDrive: access.success,
+      message: access.message || (access.success ? 'Conexão estável com Google Drive' : 'Falha ao conectar')
+    };
+  }
+
+  /**
    * Starts an internal loopback HTTP server with HTTP 206 Range seeking for Google Drive streaming
    */
   public async startHttpServer(
     executablePath: string = 'rclone',
-    remotePath: string
+    remotePath: string,
+    options: {
+      vfsCacheMode?: string;
+      vfsCacheMaxSize?: string;
+      vfsCacheMaxAge?: string;
+      vfsReadChunkSize?: string;
+      dirCacheTime?: string;
+      bandwidthLimit?: string;
+    } = {}
   ): Promise<{ url: string; port: number }> {
     // If server is already running for the exact same remote root, reuse it
     if (this.serverProcess && this.currentServerRemote === remotePath && this.currentServerUrl) {
@@ -241,14 +305,30 @@ export class RcloneService {
     this.activePort = port;
     this.currentServerRemote = remotePath;
 
+    const cacheMode = options.vfsCacheMode || 'minimal';
+    const dirCacheTime = options.dirCacheTime || '5m';
+
     const args = [
       'serve', 'http', remotePath,
       '--addr', `127.0.0.1:${port}`,
       '--read-only',
-      '--vfs-cache-mode', 'minimal',
-      '--dir-cache-time', '5m',
+      '--vfs-cache-mode', cacheMode,
+      '--dir-cache-time', dirCacheTime,
       '--no-modtime'
     ];
+
+    if (options.vfsCacheMaxSize && options.vfsCacheMaxSize !== '0') {
+      args.push('--vfs-cache-max-size', options.vfsCacheMaxSize);
+    }
+    if (options.vfsCacheMaxAge) {
+      args.push('--vfs-cache-max-age', options.vfsCacheMaxAge);
+    }
+    if (options.vfsReadChunkSize) {
+      args.push('--vfs-read-chunk-size', options.vfsReadChunkSize);
+    }
+    if (options.bandwidthLimit && options.bandwidthLimit !== 'off') {
+      args.push('--bwlimit', options.bandwidthLimit);
+    }
 
     return new Promise((resolve, reject) => {
       try {
@@ -373,5 +453,13 @@ export class RcloneService {
         reject(err);
       }
     });
+  }
+
+  public async copyFileTo(
+    executablePath: string = 'rclone',
+    remoteFilePath: string,
+    localDestPath: string
+  ): Promise<void> {
+    return this.downloadFile(executablePath, remoteFilePath, localDestPath, () => {});
   }
 }

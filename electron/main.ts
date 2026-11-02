@@ -12,6 +12,7 @@ import { registerTasksAndListsIpc } from './ipc/tasks.ipc';
 import { registerDownloadsIpc } from './ipc/downloads.ipc';
 import { registerRcloneIpc } from './ipc/rclone.ipc';
 import { registerSettingsIpc } from './ipc/settings.ipc';
+import { registerExplorerIpc } from './ipc/explorer.ipc';
 import { PlaybackService } from './services/playback.service';
 
 // ESM dirname resolution
@@ -28,9 +29,14 @@ process.on('unhandledRejection', (reason) => {
 let mainWindow: BrowserWindow | null = null;
 
 async function createWindow() {
+  const preloadCjs = path.join(__dirname, 'preload.cjs');
   const preloadMjs = path.join(__dirname, 'preload.mjs');
   const preloadJs = path.join(__dirname, 'preload.js');
-  const preloadPath = fs.existsSync(preloadMjs) ? preloadMjs : preloadJs;
+  const preloadPath = fs.existsSync(preloadCjs)
+    ? preloadCjs
+    : (fs.existsSync(preloadMjs) ? preloadMjs : preloadJs);
+
+  console.log('Preload path resolved:', preloadPath, 'exists:', fs.existsSync(preloadPath));
 
   mainWindow = new BrowserWindow({
     title: 'StudyStream Desktop',
@@ -79,6 +85,7 @@ async function createWindow() {
   registerDownloadsIpc(mainWindow);
   registerRcloneIpc();
   registerSettingsIpc(mainWindow);
+  registerExplorerIpc();
 
   // Load URL or File
   if (process.env.VITE_DEV_SERVER_URL) {

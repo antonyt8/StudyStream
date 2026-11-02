@@ -22,7 +22,14 @@ export class SettingsRepository {
       selectedRemote: map['selectedRemote'] || 'gdrive:',
       remoteFolderPath: map['remoteFolderPath'] || '',
       startWithWindows: map['startWithWindows'] === 'true',
-      dbPath: this.db.getDbPath()
+      dbPath: this.db.getDbPath(),
+      rcloneVfsCacheMode: (map['rcloneVfsCacheMode'] as any) || 'minimal',
+      rcloneVfsCacheMaxSize: map['rcloneVfsCacheMaxSize'] || '10G',
+      rcloneVfsCacheMaxAge: map['rcloneVfsCacheMaxAge'] || '24h',
+      rcloneVfsReadChunkSize: map['rcloneVfsReadChunkSize'] || '128M',
+      rcloneDirCacheTime: map['rcloneDirCacheTime'] || '5m',
+      rcloneBandwidthLimit: map['rcloneBandwidthLimit'] || 'off',
+      rcloneBufferChunkStreams: parseInt(map['rcloneBufferChunkStreams'] || '4', 10) || 4
     };
   }
 

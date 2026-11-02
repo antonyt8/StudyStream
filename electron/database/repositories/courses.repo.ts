@@ -1,5 +1,5 @@
 import { DatabaseService } from '../connection';
-import { Course, CourseModule, Lesson } from '../../types';
+import { Course, CourseModule, Lesson, GlobalSearchResult, CourseMaterial } from '../../types';
 
 export interface CourseFilter {
   search?: string;
@@ -93,7 +93,7 @@ export class CoursesRepository {
     return list.find(c => c.id === id) || null;
   }
 
-  public getFullCourse(id: string): { course: Course; modules: CourseModule[] } | null {
+  public getFullCourse(id: string): { course: Course; modules: CourseModule[]; materials: CourseMaterial[] } | null {
     const course = this.getById(id);
     if (!course) return null;
 
@@ -115,6 +115,13 @@ export class CoursesRepository {
       LEFT JOIN lesson_progress lp ON lp.lesson_id = l.id
       WHERE l.course_id = ?
       ORDER BY l.position ASC, l.title ASC
+    `, [id]);
+
+    const materials = this.db.all<CourseMaterial>(`
+      SELECT id, course_id, module_id, title, file_path, file_type, file_size, created_at
+      FROM materials
+      WHERE course_id = ?
+      ORDER BY title ASC
     `, [id]);
 
     // Group lessons into modules
@@ -155,7 +162,7 @@ export class CoursesRepository {
       };
     });
 
-    return { course, modules: modulesWithLessons };
+    return { course, modules: modulesWithLessons, materials };
   }
 
   public upsert(course: {
@@ -211,6 +218,113 @@ export class CoursesRepository {
   }
 
   public delete(id: string): void {
-    this.db.run(`DELETE FROM courses WHERE id = ?`, [id]);
+    this.db.transaction(() => {
+      this.db.run(`DELETE FROM lesson_progress WHERE course_id = ?`, [id]);
+      this.db.run(`DELETE FROM study_sessions WHERE course_id = ?`, [id]);
+      this.db.run(`DELETE FROM notes WHERE course_id = ?`, [id]);
+      this.db.run(`DELETE FROM bookmarks WHERE course_id = ?`, [id]);
+      this.db.run(`DELETE FROM custom_list_courses WHERE course_id = ?`, [id]);
+      this.db.run(`DELETE FROM downloads WHERE course_id = ?`, [id]);
+      this.db.run(`DELETE FROM materials WHERE course_id = ?`, [id]);
+      this.db.run(`DELETE FROM lessons WHERE course_id = ?`, [id]);
+      this.db.run(`DELETE FROM modules WHERE course_id = ?`, [id]);
+      this.db.run(`DELETE FROM courses WHERE id = ?`, [id]);
+    });
+    this.db.saveImmediate();
+  }
+
+  public resetProgress(id: string): void {
+    this.db.transaction(() => {
+      this.db.run(`DELETE FROM lesson_progress WHERE course_id = ?`, [id]);
+      this.db.run(`UPDATE courses SET status = 'not_started', updated_at = ? WHERE id = ?`, [new Date().toISOString(), id]);
+    });
+    this.db.saveImmediate();
+  }
+
+  public globalSearch(query: string): GlobalSearchResult {
+    const trimmed = query ? query.trim() : '';
+    if (!trimmed) {
+      return { courses: [], lessons: [], notes: [] };
+    }
+
+    const term = `%${trimmed}%`;
+
+    // 1. Matched Courses
+    const courseRows = this.db.all<any>(`
+      SELECT 
+        c.id, c.title, c.instructor, cat.name AS category_name, s.source_type,
+        COUNT(DISTINCT l.id) AS total_lessons,
+        COUNT(DISTINCT CASE WHEN lp.completed = 1 THEN l.id END) AS completed_lessons
+      FROM courses c
+      JOIN sources s ON s.id = c.source_id
+      LEFT JOIN categories cat ON cat.id = c.category_id
+      LEFT JOIN lessons l ON l.course_id = c.id
+      LEFT JOIN lesson_progress lp ON lp.lesson_id = l.id
+      WHERE c.title LIKE ? OR c.description LIKE ? OR c.instructor LIKE ? OR cat.name LIKE ?
+      GROUP BY c.id
+      LIMIT 8
+    `, [term, term, term, term]);
+
+    const courses = courseRows.map(r => {
+      const tot = Number(r.total_lessons || 0);
+      const comp = Number(r.completed_lessons || 0);
+      return {
+        id: r.id,
+        title: r.title,
+        instructor: r.instructor || undefined,
+        category_name: r.category_name || undefined,
+        source_type: r.source_type,
+        total_lessons: tot,
+        progress_percent: tot > 0 ? Math.round((comp / tot) * 100) : 0
+      };
+    });
+
+    // 2. Matched Lessons
+    const lessonRows = this.db.all<any>(`
+      SELECT 
+        l.id, l.course_id, c.title AS course_title, m.title AS module_title,
+        l.title, l.duration_seconds, COALESCE(lp.completed, 0) AS completed
+      FROM lessons l
+      JOIN courses c ON c.id = l.course_id
+      JOIN modules m ON m.id = l.module_id
+      LEFT JOIN lesson_progress lp ON lp.lesson_id = l.id
+      WHERE l.title LIKE ? OR l.original_path LIKE ?
+      LIMIT 12
+    `, [term, term]);
+
+    const lessons = lessonRows.map(r => ({
+      id: r.id,
+      course_id: r.course_id,
+      course_title: r.course_title,
+      module_title: r.module_title,
+      title: r.title,
+      duration_seconds: r.duration_seconds || 0,
+      completed: r.completed || 0
+    }));
+
+    // 3. Matched Notes
+    const noteRows = this.db.all<any>(`
+      SELECT 
+        n.id, n.course_id, n.lesson_id, c.title AS course_title,
+        l.title AS lesson_title, n.title, n.content, n.timestamp_seconds
+      FROM notes n
+      JOIN courses c ON c.id = n.course_id
+      LEFT JOIN lessons l ON l.id = n.lesson_id
+      WHERE n.title LIKE ? OR n.content LIKE ?
+      LIMIT 8
+    `, [term, term]);
+
+    const notes = noteRows.map(r => ({
+      id: r.id,
+      course_id: r.course_id,
+      lesson_id: r.lesson_id || undefined,
+      course_title: r.course_title,
+      lesson_title: r.lesson_title || undefined,
+      title: r.title,
+      content: r.content,
+      timestamp_seconds: r.timestamp_seconds !== null && r.timestamp_seconds !== undefined ? Number(r.timestamp_seconds) : undefined
+    }));
+
+    return { courses, lessons, notes };
   }
 }

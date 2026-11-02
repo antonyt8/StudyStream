@@ -27,6 +27,7 @@ import {
 interface PlayerProps {
   courseId: string;
   lessonId: string;
+  initialTime?: number;
   onBack: () => void;
   onSelectLesson: (courseId: string, lessonId: string) => void;
 }
@@ -34,6 +35,7 @@ interface PlayerProps {
 export const Player: React.FC<PlayerProps> = ({
   courseId,
   lessonId,
+  initialTime,
   onBack,
   onSelectLesson
 }) => {
@@ -105,8 +107,13 @@ export const Player: React.FC<PlayerProps> = ({
         setNotes(nList);
         setBookmarks(bList);
 
-        // Saved progress resume
-        if (prog && prog.position_seconds > 0 && !prog.completed) {
+        // Saved progress or initialTime resume
+        if (initialTime !== undefined && initialTime >= 0) {
+          setCurrentTime(initialTime);
+          if (videoRef.current) {
+            videoRef.current.currentTime = initialTime;
+          }
+        } else if (prog && prog.position_seconds > 0 && !prog.completed) {
           setCurrentTime(prog.position_seconds);
           if (videoRef.current) {
             videoRef.current.currentTime = prog.position_seconds;
@@ -450,6 +457,10 @@ export const Player: React.FC<PlayerProps> = ({
                 if (videoRef.current) {
                   setDuration(videoRef.current.duration);
                   videoRef.current.playbackRate = playbackSpeed;
+                  const seekTo = initialTime !== undefined && initialTime >= 0 ? initialTime : currentTime;
+                  if (seekTo > 0) {
+                    videoRef.current.currentTime = seekTo;
+                  }
                 }
               }}
               onEnded={() => {
@@ -613,11 +624,20 @@ export const Player: React.FC<PlayerProps> = ({
                   {mod.lessons?.map((les, idx) => {
                     const isCurrent = les.id === lessonId;
                     const isCompleted = les.progress?.completed === 1;
+                    const isPdf = les.media_type === 'application/pdf' || les.original_path.toLowerCase().endsWith('.pdf');
+                    const partMatch = les.title.match(/(?:parte|part|pt)\s*(\d+)/i);
+                    const partBadge = partMatch ? `Parte ${partMatch[1]}` : null;
 
                     return (
                       <div
                         key={les.id}
-                        onClick={() => onSelectLesson(courseId, les.id)}
+                        onClick={() => {
+                          if (isPdf) {
+                            if (window.api) window.api.openPath(les.local_path || les.original_path);
+                          } else {
+                            onSelectLesson(courseId, les.id);
+                          }
+                        }}
                         className={`p-2.5 rounded-lg flex items-center justify-between gap-2.5 cursor-pointer text-xs transition-all ${
                           isCurrent
                             ? 'bg-primary-600 text-white font-semibold shadow-glow'
@@ -627,12 +647,27 @@ export const Player: React.FC<PlayerProps> = ({
                         <div className="flex items-center gap-2 truncate">
                           {isCompleted ? (
                             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                          ) : isPdf ? (
+                            <FileText className="w-4 h-4 text-rose-400 shrink-0" />
                           ) : (
                             <Circle className={`w-4 h-4 shrink-0 ${isCurrent ? 'text-white' : 'text-slate-500'}`} />
                           )}
                           <span className="truncate">
                             {idx + 1}. {les.title}
                           </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {partBadge && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary-900/80 text-primary-200 border border-primary-700/60">
+                              {partBadge}
+                            </span>
+                          )}
+                          {isPdf && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-950/80 text-rose-300 border border-rose-700/60">
+                              PDF
+                            </span>
+                          )}
                         </div>
                       </div>
                     );

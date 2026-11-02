@@ -29,4 +29,11 @@ export function registerRcloneIpc(): void {
     const execPath = settings.rclonePath || 'rclone';
     return rcloneService.listJson(execPath, remotePath, { dirsOnly: true, maxDepth: 1 });
   });
+
+  ipcMain.handle('rclone:diagnostics', async (_, customPath?: string, remotePath?: string) => {
+    const settings = settingsRepo.getAll();
+    const execPath = customPath || settings.rclonePath || 'rclone';
+    const targetRemote = remotePath || settings.selectedRemote || 'gdrive:';
+    return rcloneService.getDiagnostics(execPath, targetRemote);
+  });
 }

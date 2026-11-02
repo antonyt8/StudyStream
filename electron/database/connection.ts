@@ -78,6 +78,13 @@ export class DatabaseService {
       console.error('Migration error:', err);
       throw err;
     }
+
+    // Ensure scan_mode column exists for existing databases
+    try {
+      this.db.run(`ALTER TABLE sources ADD COLUMN scan_mode TEXT DEFAULT 'single_course';`);
+    } catch {
+      // Column already exists
+    }
   }
 
   public getDbPath(): string {

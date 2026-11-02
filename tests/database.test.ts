@@ -13,6 +13,9 @@ import { NotesRepository } from '../electron/database/repositories/notes.repo';
 import { BookmarksRepository } from '../electron/database/repositories/bookmarks.repo';
 import { GoalsRepository } from '../electron/database/repositories/goals.repo';
 import { TasksRepository } from '../electron/database/repositories/tasks.repo';
+import { MaterialsRepository } from '../electron/database/repositories/materials.repo';
+import { CustomListsRepository } from '../electron/database/repositories/lists.repo';
+import { SettingsRepository } from '../electron/database/repositories/settings.repo';
 
 describe('Database and Repositories Integration Tests', () => {
   const testDbDir = path.join(os.tmpdir(), `studystream_test_${Date.now()}`);
@@ -228,5 +231,124 @@ describe('Database and Repositories Integration Tests', () => {
 
     const integrity = dbService.checkIntegrity();
     expect(integrity.ok).toBe(true);
+  });
+
+  it('should manage complementary course materials', () => {
+    const materialsRepo = new MaterialsRepository();
+    materialsRepo.upsert({
+      id: 'mat_test_1',
+      course_id: 'course_test_1',
+      module_id: 'mod_test_1',
+      title: 'Apostila TypeScript.pdf',
+      file_path: 'C:\\TestCourses\\TypeScript\\apostila.pdf',
+      file_type: 'pdf',
+      file_size: 2048576
+    });
+
+    const list = materialsRepo.listByCourse('course_test_1');
+    expect(list.some(m => m.id === 'mat_test_1')).toBe(true);
+    const found = list.find(m => m.id === 'mat_test_1');
+    expect(found?.file_type).toBe('pdf');
+    expect(found?.file_size).toBe(2048576);
+
+    // Verify materials are returned in getFullCourse
+    const coursesRepo = new CoursesRepository();
+    const full = coursesRepo.getFullCourse('course_test_1');
+    expect(full?.materials.some(m => m.id === 'mat_test_1')).toBe(true);
+  });
+
+  it('should manage custom lists and course associations', () => {
+    const listsRepo = new CustomListsRepository();
+    const created = listsRepo.create('Estudar Esta Semana', 'Cursos prioritários');
+    expect(created.id).toBeDefined();
+    expect(created.name).toBe('Estudar Esta Semana');
+
+    // Add course to list
+    listsRepo.addCourse(created.id, 'course_test_1');
+    const inList = listsRepo.getCoursesInList(created.id);
+    expect(inList.some(c => c.id === 'course_test_1')).toBe(true);
+
+    // Remove course from list
+    listsRepo.removeCourse(created.id, 'course_test_1');
+    const afterRemove = listsRepo.getCoursesInList(created.id);
+    expect(afterRemove.some(c => c.id === 'course_test_1')).toBe(false);
+
+    // Delete list
+    listsRepo.delete(created.id);
+    const allLists = listsRepo.list();
+    expect(allLists.some(l => l.id === created.id)).toBe(false);
+  });
+
+  it('should execute globalSearch across courses, lessons, and notes', () => {
+    const coursesRepo = new CoursesRepository();
+    const notesRepo = new NotesRepository();
+
+    // Create a note with searchable term
+    notesRepo.create({
+      courseId: 'course_test_1',
+      lessonId: 'les_test_1',
+      title: 'Configuracao tsconfig',
+      content: 'Configurar compilerOptions no tsconfig.json',
+      timestampSeconds: 15.0
+    });
+
+    // 1. Search for 'TypeScript'
+    const resCourse = coursesRepo.globalSearch('TypeScript');
+    expect(resCourse.courses.some(c => c.title.includes('TypeScript'))).toBe(true);
+
+    // 2. Search for lesson 'Setup'
+    const resLesson = coursesRepo.globalSearch('Setup');
+    expect(resLesson.lessons.some(l => l.title.includes('Setup'))).toBe(true);
+
+    // 3. Search for note 'compilerOptions'
+    const resNote = coursesRepo.globalSearch('compilerOptions');
+    expect(resNote.notes.some(n => n.content.includes('compilerOptions'))).toBe(true);
+  });
+
+  it('should persist and load advanced Rclone VFS settings', () => {
+    const settingsRepo = new SettingsRepository();
+    settingsRepo.updateMany({
+      rcloneVfsCacheMode: 'full',
+      rcloneVfsCacheMaxSize: '25G',
+      rcloneVfsCacheMaxAge: '48h',
+      rcloneVfsReadChunkSize: '256M',
+      rcloneDirCacheTime: '10m',
+      rcloneBandwidthLimit: '20M'
+    });
+
+    const loaded = settingsRepo.getAll();
+    expect(loaded.rcloneVfsCacheMode).toBe('full');
+    expect(loaded.rcloneVfsCacheMaxSize).toBe('25G');
+    expect(loaded.rcloneVfsCacheMaxAge).toBe('48h');
+    expect(loaded.rcloneVfsReadChunkSize).toBe('256M');
+    expect(loaded.rcloneDirCacheTime).toBe('10m');
+    expect(loaded.rcloneBandwidthLimit).toBe('20M');
+  });
+
+  it('should reset course progress and delete course with cascading cleanup', () => {
+    const coursesRepo = new CoursesRepository();
+    const progressRepo = new ProgressRepository();
+
+    // Verify course has progress before reset
+    const full = coursesRepo.getFullCourse('course_test_1');
+    expect(full).not.toBeNull();
+
+    // Reset progress
+    coursesRepo.resetProgress('course_test_1');
+    const afterReset = coursesRepo.getFullCourse('course_test_1');
+    expect(afterReset?.course.status).toBe('not_started');
+    const progressAfter = progressRepo.getByLesson('les_test_1');
+    expect(progressAfter).toBeNull();
+
+    // Delete course
+    coursesRepo.delete('course_test_1');
+    const afterDelete = coursesRepo.getById('course_test_1');
+    expect(afterDelete).toBeNull();
+
+    // Verify cascaded modules and lessons are removed
+    const lessonsRepo = new LessonsRepository();
+    const modulesRepo = new ModulesRepository();
+    expect(modulesRepo.listByCourse('course_test_1')).toHaveLength(0);
+    expect(lessonsRepo.getById('les_test_1')).toBeNull();
   });
 });

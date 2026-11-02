@@ -6,6 +6,10 @@
   color-scheme: dark;
 }
 
+.light {
+  color-scheme: light;
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -14,6 +18,12 @@ body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   overflow: hidden;
   user-select: none;
+}
+
+.light body,
+html.light body {
+  background-color: #f8fafc;
+  color: #0f172a;
 }
 
 /* Custom scrollbars */

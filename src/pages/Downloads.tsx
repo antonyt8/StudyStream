@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { DownloadItem } from '../types';
-import { Download, CheckCircle2, AlertCircle, Loader2, Trash2, Folder, Play } from 'lucide-react';
+import { Download, CheckCircle2, AlertCircle, Loader2, Trash2, Folder, Play, RotateCcw } from 'lucide-react';
 
 interface DownloadsPageProps {
   onOpenPlayer: (courseId: string, lessonId: string) => void;
@@ -56,6 +56,15 @@ export const DownloadsPage: React.FC<DownloadsPageProps> = ({ onOpenPlayer }) =>
   const handleDelete = async (id: string) => {
     await window.api.deleteDownload(id);
     loadData();
+  };
+
+  const handleRetry = async (lessonId: string) => {
+    try {
+      await window.api.startDownload(lessonId);
+      loadData();
+    } catch (err: any) {
+      alert(`Erro ao reiniciar download: ${err.message}`);
+    }
   };
 
   const formatBytes = (bytes: number) => {
@@ -123,6 +132,17 @@ export const DownloadsPage: React.FC<DownloadsPageProps> = ({ onOpenPlayer }) =>
                       >
                         <Play className="w-3.5 h-3.5 fill-current" />
                         <span>Assistir</span>
+                      </button>
+                    )}
+
+                    {isError && (
+                      <button
+                        onClick={() => handleRetry(item.lesson_id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white rounded-lg text-xs font-semibold border border-rose-500/30 transition-colors"
+                        title="Tentar baixar novamente"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>Tentar Novamente</span>
                       </button>
                     )}
 

@@ -178,9 +178,16 @@ export class PlaybackService {
         const settings = this.settingsRepo.getAll();
         const rclonePath = settings.rclonePath || 'rclone';
 
-        // Start rclone serve http on the remote root
+        // Start rclone serve http on the remote root with configured VFS cache options
         const remoteRoot = params.sourceRoot; // e.g. "gdrive:Cursos"
-        const serverInfo = await this.rcloneService.startHttpServer(rclonePath, remoteRoot);
+        const serverInfo = await this.rcloneService.startHttpServer(rclonePath, remoteRoot, {
+          vfsCacheMode: settings.rcloneVfsCacheMode,
+          vfsCacheMaxSize: settings.rcloneVfsCacheMaxSize,
+          vfsCacheMaxAge: settings.rcloneVfsCacheMaxAge,
+          vfsReadChunkSize: settings.rcloneVfsReadChunkSize,
+          dirCacheTime: settings.rcloneDirCacheTime,
+          bandwidthLimit: settings.rcloneBandwidthLimit
+        });
 
         // Compute relative path from remoteRoot
         let relative = params.remotePath;

@@ -7,6 +7,7 @@ export interface Source {
   root_path: string;
   remote_name?: string;
   enabled: number;
+  scan_mode?: 'single_course' | 'multi_course';
   last_scan_at?: string;
   created_at: string;
   updated_at: string;
@@ -210,6 +211,22 @@ export interface ScanProgress {
   error?: string;
 }
 
+export interface RcloneRemoteDetail {
+  name: string;
+  type: string;
+  parameters: Record<string, string>;
+}
+
+export interface RcloneDiagnostics {
+  installed: boolean;
+  version: string;
+  configPath: string;
+  remotesCount: number;
+  latencyMs?: number;
+  canConnectDrive: boolean;
+  message: string;
+}
+
 export interface AppSettings {
   theme: 'dark' | 'light';
   language: string;
@@ -222,6 +239,14 @@ export interface AppSettings {
   remoteFolderPath: string;
   startWithWindows: boolean;
   dbPath?: string;
+  // Advanced Rclone VFS & Performance Tuning
+  rcloneVfsCacheMode?: 'off' | 'minimal' | 'writes' | 'full';
+  rcloneVfsCacheMaxSize?: string; // e.g. '10G'
+  rcloneVfsCacheMaxAge?: string; // e.g. '24h'
+  rcloneVfsReadChunkSize?: string; // e.g. '128M'
+  rcloneDirCacheTime?: string; // e.g. '5m'
+  rcloneBandwidthLimit?: string; // e.g. 'off'
+  rcloneBufferChunkStreams?: number; // e.g. 4
 }
 
 export interface DashboardStats {
@@ -242,3 +267,75 @@ export interface DashboardStats {
   dailyGoalMinutes: number;
   dailyGoalProgressMinutes: number;
 }
+
+export interface CourseMaterial {
+  id: string;
+  course_id: string;
+  module_id?: string;
+  title: string;
+  file_path: string;
+  file_type: 'pdf' | 'txt' | 'markdown' | 'docx' | 'zip' | 'other';
+  file_size: number;
+  created_at: string;
+}
+
+export interface GlobalSearchResult {
+  courses: Array<{
+    id: string;
+    title: string;
+    instructor?: string;
+    category_name?: string;
+    source_type: string;
+    total_lessons: number;
+    progress_percent: number;
+  }>;
+  lessons: Array<{
+    id: string;
+    course_id: string;
+    course_title: string;
+    module_title: string;
+    title: string;
+    duration_seconds: number;
+    completed: number;
+  }>;
+  notes: Array<{
+    id: string;
+    course_id: string;
+    lesson_id?: string;
+    course_title: string;
+    lesson_title?: string;
+    title: string;
+    content: string;
+    timestamp_seconds?: number;
+  }>;
+}
+
+export interface ExplorerFolderItem {
+  name: string;
+  path: string;
+}
+
+export interface ExplorerFileItem {
+  name: string;
+  path: string;
+  size: number;
+  isVideo: boolean;
+  isPdf: boolean;
+  ext: string;
+}
+
+export interface ExplorerListing {
+  success: boolean;
+  error?: string;
+  isRoot?: boolean;
+  currentPath: string;
+  fullRemotePath?: string;
+  parentPath?: string;
+  breadcrumbs: Array<{ name: string; path: string }>;
+  folders: ExplorerFolderItem[];
+  files: ExplorerFileItem[];
+  videoCount: number;
+  pdfCount: number;
+}
+
+

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AppSettings, RcloneStatus, Source } from '../types';
+import { AppSettings, RcloneStatus, Source, RcloneDiagnostics } from '../types';
 import {
   Settings as SettingsIcon,
   HardDrive,
@@ -13,7 +13,15 @@ import {
   Save,
   ShieldCheck,
   DownloadCloud,
-  Loader2
+  Loader2,
+  Activity,
+  Cpu,
+  FileCode,
+  FileDown,
+  Sparkles,
+  ShieldAlert,
+  Moon,
+  Sun
 } from 'lucide-react';
 
 interface SettingsPageProps {
@@ -26,6 +34,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onReScanSource }) =>
   const [rcloneStatus, setRcloneStatus] = useState<RcloneStatus | null>(null);
   const [testingRemote, setTestingRemote] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [diagnostics, setDiagnostics] = useState<RcloneDiagnostics | null>(null);
+  const [runningDiagnostics, setRunningDiagnostics] = useState(false);
   const [integrityResult, setIntegrityResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [savedFeedback, setSavedFeedback] = useState(false);
 
@@ -92,6 +102,27 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onReScanSource }) =>
     }
   };
 
+  const handleRunDiagnostics = async () => {
+    if (!settings || !window.api) return;
+    setRunningDiagnostics(true);
+    setDiagnostics(null);
+    try {
+      const res = await window.api.getRcloneDiagnostics(settings.rclonePath, settings.selectedRemote);
+      setDiagnostics(res);
+    } catch (err: any) {
+      setDiagnostics({
+        installed: false,
+        version: '',
+        configPath: '',
+        remotesCount: 0,
+        canConnectDrive: false,
+        message: err.message
+      });
+    } finally {
+      setRunningDiagnostics(false);
+    }
+  };
+
   const handleDeleteSource = async (id: string, name: string) => {
     if (confirm(`Deseja desvincular a origem "${name}"? Os arquivos originais NÃO serão apagados do seu computador ou Google Drive.`)) {
       await window.api.deleteSource(id);
@@ -125,6 +156,41 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onReScanSource }) =>
     setIntegrityResult(res);
   };
 
+  const handleExportJson = async () => {
+    const res = await window.api.exportUserDataJson();
+    if (res.success && res.filePath) {
+      alert(`Dados exportados com sucesso para:\n${res.filePath}`);
+    } else if (!res.cancelled && res.error) {
+      alert(`Erro ao exportar dados: ${res.error}`);
+    }
+  };
+
+  const handleClearCache = async () => {
+    if (confirm('Deseja limpar os arquivos temporários e cache de reprodução?')) {
+      const res = await window.api.clearCache();
+      if (res.success) {
+        alert('Cache temporário limpo com sucesso!');
+      } else {
+        alert(`Erro ao limpar cache: ${res.error}`);
+      }
+    }
+  };
+
+  const handleResetLocalData = async () => {
+    const confirm1 = confirm('ATENÇÃO: Deseja realmente resetar todos os dados locais do aplicativo (cursos indexados, anotações, histórico e metas)?\n\nNENHUM ARQUIVO de curso será apagado do seu computador ou Google Drive.');
+    if (!confirm1) return;
+    const confirm2 = confirm('Confirmação final: Esta ação é irreversível a menos que você tenha um backup prévio. Deseja prosseguir com a exclusão dos dados locais?');
+    if (!confirm2) return;
+
+    const res = await window.api.resetLocalData();
+    if (res.success) {
+      alert('Dados locais resetados com sucesso! O aplicativo será recarregado.');
+      window.location.reload();
+    } else {
+      alert(`Erro ao resetar: ${res.error}`);
+    }
+  };
+
   if (!settings) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -154,6 +220,34 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onReScanSource }) =>
           </h3>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                {settings.theme === 'dark' ? <Moon className="w-3.5 h-3.5 text-primary-400" /> : <Sun className="w-3.5 h-3.5 text-amber-400" />}
+                <span>Tema Visual da Interface</span>
+              </label>
+              <select
+                value={settings.theme}
+                onChange={(e) => setSettings({ ...settings, theme: e.target.value as 'dark' | 'light' })}
+                className="w-full bg-background border border-border text-xs text-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-primary-500"
+              >
+                <option value="dark">Tema Escuro (Padrão Streaming)</option>
+                <option value="light">Tema Claro</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Idioma da Aplicação
+              </label>
+              <select
+                value={settings.language}
+                onChange={(e) => setSettings({ ...settings, language: e.target.value })}
+                className="w-full bg-background border border-border text-xs text-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-primary-500"
+              >
+                <option value="pt-BR">Português (Brasil)</option>
+              </select>
+            </div>
+
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                 Velocidade Padrão de Reprodução
@@ -210,11 +304,33 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onReScanSource }) =>
                 </button>
               </div>
             </div>
+
+            <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <label className="flex items-center gap-2.5 p-2.5 rounded-xl border border-border bg-background/50 hover:bg-background cursor-pointer transition-colors text-xs text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={settings.autoResume}
+                  onChange={(e) => setSettings({ ...settings, autoResume: e.target.checked })}
+                  className="rounded border-border text-primary-600 focus:ring-primary-500 w-4 h-4"
+                />
+                <span>Retomar vídeo automaticamente de onde parou</span>
+              </label>
+
+              <label className="flex items-center gap-2.5 p-2.5 rounded-xl border border-border bg-background/50 hover:bg-background cursor-pointer transition-colors text-xs text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={settings.startWithWindows}
+                  onChange={(e) => setSettings({ ...settings, startWithWindows: e.target.checked })}
+                  className="rounded border-border text-primary-600 focus:ring-primary-500 w-4 h-4"
+                />
+                <span>Iniciar StudyStream com o Windows</span>
+              </label>
+            </div>
           </div>
         </div>
 
         {/* Section 2: Integração Google Drive & Rclone */}
-        <div className="p-6 bg-background-surface/80 border border-border rounded-2xl space-y-4">
+        <div className="p-6 bg-background-surface/80 border border-border rounded-2xl space-y-5">
           <div className="flex items-center justify-between">
             <h3 className="text-base font-bold text-white flex items-center gap-2">
               <Cloud className="w-5 h-5 text-accent-cyan" />
@@ -222,12 +338,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onReScanSource }) =>
             </h3>
 
             {rcloneStatus?.installed ? (
-              <span className="inline-flex items-center gap-1 text-xs text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+              <span className="inline-flex items-center gap-1 text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20 font-medium">
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 Rclone detectado ({rcloneStatus.version || 'Instalado'})
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+              <span className="inline-flex items-center gap-1 text-xs text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/20 font-medium">
                 <AlertCircle className="w-3.5 h-3.5" />
                 Rclone não detectado no PATH
               </span>
@@ -252,17 +368,139 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onReScanSource }) =>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                 Remote Padrão do Google Drive
               </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={settings.selectedRemote}
+                  onChange={(e) => setSettings({ ...settings, selectedRemote: e.target.value })}
+                  placeholder="Ex: gdrive:"
+                  className="flex-1 bg-background border border-border text-xs text-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-primary-500"
+                />
+                {rcloneStatus && rcloneStatus.remotes.length > 0 && (
+                  <select
+                    value={settings.selectedRemote}
+                    onChange={(e) => setSettings({ ...settings, selectedRemote: e.target.value })}
+                    className="bg-background-elevated border border-border text-xs text-slate-300 rounded-lg px-2.5 py-2 focus:outline-none"
+                    title="Remotes detectados no seu computador"
+                  >
+                    <option value="" disabled>Detectados</option>
+                    {rcloneStatus.remotes.map((r) => (
+                      <option key={r.name} value={r.name.endsWith(':') ? r.name : `${r.name}:`}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Subpasta Remota Padrão (Opcional)
+              </label>
               <input
                 type="text"
-                value={settings.selectedRemote}
-                onChange={(e) => setSettings({ ...settings, selectedRemote: e.target.value })}
-                placeholder="Ex: gdrive:"
+                value={settings.remoteFolderPath || ''}
+                onChange={(e) => setSettings({ ...settings, remoteFolderPath: e.target.value })}
+                placeholder="Ex: Cursos ou MeusCursos/TI (deixe em branco para raiz do remote)"
                 className="w-full bg-background border border-border text-xs text-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-primary-500"
               />
             </div>
           </div>
 
-          <div className="flex items-center justify-between pt-2">
+          {/* Advanced VFS Cache & Streaming Performance */}
+          <div className="p-4 bg-background border border-border rounded-xl space-y-3">
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
+              <Cpu className="w-4 h-4 text-primary-400" />
+              <span>Ajustes Avançados de Cache VFS & Streaming HTTP</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                  Modo de Cache VFS
+                </label>
+                <select
+                  value={settings.rcloneVfsCacheMode || 'minimal'}
+                  onChange={(e) => setSettings({ ...settings, rcloneVfsCacheMode: e.target.value as any })}
+                  className="w-full bg-background-surface border border-border text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none"
+                >
+                  <option value="minimal">minimal (Recomendado)</option>
+                  <option value="writes">writes</option>
+                  <option value="full">full</option>
+                  <option value="off">off (sem cache)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                  Tamanho Máximo do Cache VFS
+                </label>
+                <input
+                  type="text"
+                  value={settings.rcloneVfsCacheMaxSize || '10G'}
+                  onChange={(e) => setSettings({ ...settings, rcloneVfsCacheMaxSize: e.target.value })}
+                  placeholder="Ex: 10G ou 20G"
+                  className="w-full bg-background-surface border border-border text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                  Idade Máxima do Cache (Max Age)
+                </label>
+                <input
+                  type="text"
+                  value={settings.rcloneVfsCacheMaxAge || '24h'}
+                  onChange={(e) => setSettings({ ...settings, rcloneVfsCacheMaxAge: e.target.value })}
+                  placeholder="Ex: 24h ou 48h"
+                  className="w-full bg-background-surface border border-border text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                  Chunk Size de Leitura VFS
+                </label>
+                <input
+                  type="text"
+                  value={settings.rcloneVfsReadChunkSize || '128M'}
+                  onChange={(e) => setSettings({ ...settings, rcloneVfsReadChunkSize: e.target.value })}
+                  placeholder="Ex: 128M ou 64M"
+                  className="w-full bg-background-surface border border-border text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                  Tempo de Cache de Diretórios
+                </label>
+                <input
+                  type="text"
+                  value={settings.rcloneDirCacheTime || '5m'}
+                  onChange={(e) => setSettings({ ...settings, rcloneDirCacheTime: e.target.value })}
+                  placeholder="Ex: 5m ou 10m"
+                  className="w-full bg-background-surface border border-border text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                  Limite de Banda (Bandwidth)
+                </label>
+                <input
+                  type="text"
+                  value={settings.rcloneBandwidthLimit || 'off'}
+                  onChange={(e) => setSettings({ ...settings, rcloneBandwidthLimit: e.target.value })}
+                  placeholder="Ex: off ou 10M"
+                  className="w-full bg-background-surface border border-border text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Test Remote & Diagnostic Buttons */}
+          <div className="flex flex-wrap items-center gap-3 pt-1">
             <button
               type="button"
               onClick={handleTestRemote}
@@ -273,6 +511,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onReScanSource }) =>
               <span>Testar Acesso ao Google Drive</span>
             </button>
 
+            <button
+              type="button"
+              onClick={handleRunDiagnostics}
+              disabled={runningDiagnostics}
+              className="px-4 py-2 bg-background-elevated hover:bg-background-elevated/80 border border-border text-xs font-semibold text-accent-cyan rounded-lg flex items-center gap-2 transition-colors disabled:opacity-50"
+            >
+              {runningDiagnostics ? <Loader2 className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
+              <span>Diagnóstico Completo Rclone</span>
+            </button>
+
             {testResult && (
               <span className={`text-xs flex items-center gap-1 ${testResult.success ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {testResult.success ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
@@ -280,6 +528,51 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onReScanSource }) =>
               </span>
             )}
           </div>
+
+          {/* Diagnostics Results Panel */}
+          {diagnostics && (
+            <div className="p-4 bg-background border border-border rounded-xl space-y-2.5 animate-fadeIn">
+              <div className="flex items-center justify-between text-xs font-bold text-white">
+                <span className="flex items-center gap-1.5">
+                  <Activity className="w-4 h-4 text-accent-cyan" />
+                  Resultado do Diagnóstico do Rclone
+                </span>
+                <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
+                  diagnostics.canConnectDrive ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                }`}>
+                  {diagnostics.canConnectDrive ? 'Operacional' : 'Com Erro'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div className="p-2.5 bg-background-surface rounded-lg border border-border/60">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Versão do Rclone</span>
+                  <div className="text-slate-200 font-mono mt-0.5">{diagnostics.version || 'Não detectada'}</div>
+                </div>
+
+                <div className="p-2.5 bg-background-surface rounded-lg border border-border/60">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Latência de Resposta</span>
+                  <div className="text-slate-200 font-mono mt-0.5">
+                    {diagnostics.latencyMs !== undefined ? `${diagnostics.latencyMs} ms` : 'Inacessível'}
+                  </div>
+                </div>
+
+                <div className="sm:col-span-2 p-2.5 bg-background-surface rounded-lg border border-border/60">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Arquivo de Configuração</span>
+                  <div className="text-slate-200 font-mono text-[11px] mt-0.5 break-all select-all">
+                    {diagnostics.configPath}
+                  </div>
+                </div>
+
+                <div className="sm:col-span-2 p-2.5 bg-background-surface rounded-lg border border-border/60">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Status de Conectividade</span>
+                  <div className={`mt-0.5 font-medium ${diagnostics.canConnectDrive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {diagnostics.message} ({diagnostics.remotesCount} remotes configurados)
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Section 3: Origens Cadastradas */}
@@ -389,6 +682,80 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onReScanSource }) =>
               <span>Integridade do banco: {integrityResult.message}</span>
             </div>
           )}
+        </div>
+
+        {/* Section 5: Privacidade, Dados Pessoais & Limpeza */}
+        <div className="p-6 bg-background-surface/80 border border-border rounded-2xl space-y-4">
+          <h3 className="text-base font-bold text-white flex items-center gap-2">
+            <ShieldAlert className="w-5 h-5 text-accent-rose" />
+            <span>Privacidade, Dados Pessoais & Manutenção</span>
+          </h3>
+
+          <p className="text-xs text-slate-400">
+            Exportação de dados no formato aberto JSON, higienização de arquivos temporários e redefinição segura do banco de dados local.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+            <div className="p-4 rounded-xl border border-border bg-background/50 flex flex-col justify-between space-y-3">
+              <div>
+                <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5 mb-1">
+                  <FileDown className="w-4 h-4 text-primary-400" />
+                  <span>Exportar Dados (JSON)</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Exporta todas as suas anotações, marcadores, metas, histórico e listas personalizadas em arquivo JSON estruturado.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleExportJson}
+                className="w-full px-3 py-2 bg-background-elevated hover:bg-primary-600/30 border border-border text-xs font-semibold text-primary-300 hover:text-white rounded-lg flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <FileDown className="w-3.5 h-3.5" />
+                <span>Exportar JSON</span>
+              </button>
+            </div>
+
+            <div className="p-4 rounded-xl border border-border bg-background/50 flex flex-col justify-between space-y-3">
+              <div>
+                <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5 mb-1">
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  <span>Limpar Cache & Temporários</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Apaga miniaturas e fragmentos de streaming temporários do disco para liberar espaço.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleClearCache}
+                className="w-full px-3 py-2 bg-background-elevated hover:bg-amber-600/30 border border-border text-xs font-semibold text-amber-300 hover:text-white rounded-lg flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Limpar Cache</span>
+              </button>
+            </div>
+
+            <div className="p-4 rounded-xl border border-rose-500/20 bg-rose-500/5 flex flex-col justify-between space-y-3">
+              <div>
+                <div className="text-xs font-bold text-rose-300 flex items-center gap-1.5 mb-1">
+                  <Trash2 className="w-4 h-4 text-rose-400" />
+                  <span>Redefinir Dados Locais</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Limpa o catálogo e tabelas locais. Não apaga nenhum arquivo original de vídeo do seu computador ou Google Drive.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleResetLocalData}
+                className="w-full px-3 py-2 bg-rose-600/20 hover:bg-rose-600 border border-rose-500/30 text-xs font-semibold text-rose-300 hover:text-white rounded-lg flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Resetar Dados</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Save Bar */}

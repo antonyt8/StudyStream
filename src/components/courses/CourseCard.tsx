@@ -1,11 +1,12 @@
 import React from 'react';
 import { Course } from '../../types';
-import { Play, Heart, CheckCircle2, BookOpen, HardDrive, Cloud } from 'lucide-react';
+import { Play, Heart, CheckCircle2, BookOpen, HardDrive, Cloud, Trash2 } from 'lucide-react';
 
 interface CourseCardProps {
   course: Course;
   onSelect: (courseId: string) => void;
   onToggleFavorite?: (courseId: string, e: React.MouseEvent) => void;
+  onDeleteCourse?: (courseId: string, courseTitle: string, e: React.MouseEvent) => void;
 }
 
 // Generate pleasing consistent gradient from course title
@@ -28,7 +29,8 @@ function getGradient(title: string): string {
 export const CourseCard: React.FC<CourseCardProps> = ({
   course,
   onSelect,
-  onToggleFavorite
+  onToggleFavorite,
+  onDeleteCourse
 }) => {
   const total = course.total_lessons || 0;
   const completed = course.completed_lessons || 0;
@@ -61,20 +63,35 @@ export const CourseCard: React.FC<CourseCardProps> = ({
             )}
           </span>
 
-          {onToggleFavorite && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleFavorite(course.id, e);
-              }}
-              className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center text-white/80 hover:text-rose-400 hover:scale-110 active:scale-95 transition-all border border-white/10"
-              title={course.is_favorite ? 'Remover dos favoritos' : 'Favoritar curso'}
-            >
-              <Heart
-                className={`w-3.5 h-3.5 ${course.is_favorite ? 'fill-rose-500 text-rose-500' : ''}`}
-              />
-            </button>
-          )}
+          <div className="flex items-center gap-1.5">
+            {onToggleFavorite && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleFavorite(course.id, e);
+                }}
+                className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center text-white/80 hover:text-rose-400 hover:scale-110 active:scale-95 transition-all border border-white/10"
+                title={course.is_favorite ? 'Remover dos favoritos' : 'Favoritar curso'}
+              >
+                <Heart
+                  className={`w-3.5 h-3.5 ${course.is_favorite ? 'fill-rose-500 text-rose-500' : ''}`}
+                />
+              </button>
+            )}
+
+            {onDeleteCourse && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteCourse(course.id, course.title, e);
+                }}
+                className="w-7 h-7 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center text-white/60 hover:text-rose-400 hover:bg-rose-500/20 hover:scale-110 active:scale-95 transition-all border border-white/10"
+                title="Excluir curso da biblioteca"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Play Icon on Hover */}

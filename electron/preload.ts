@@ -5,7 +5,7 @@ import { SourceType, AppSettings, TaskStatus } from '../src/types';
 const api = {
   // Library
   selectFolder: () => ipcRenderer.invoke('library:select-folder'),
-  addSource: (data: { name: string; sourceType: SourceType; rootPath: string; remoteName?: string }) => 
+  addSource: (data: { name: string; sourceType: SourceType; rootPath: string; remoteName?: string; scanMode?: 'single_course' | 'multi_course' }) => 
     ipcRenderer.invoke('library:add-source', data),
   listSources: () => ipcRenderer.invoke('library:list-sources'),
   deleteSource: (id: string) => ipcRenderer.invoke('library:delete-source', id),
@@ -23,6 +23,8 @@ const api = {
   toggleFavorite: (id: string) => ipcRenderer.invoke('courses:toggle-favorite', id),
   updateCourse: (id: string, updates: any) => ipcRenderer.invoke('courses:update', id, updates),
   deleteCourse: (id: string) => ipcRenderer.invoke('courses:delete', id),
+  resetCourseProgress: (id: string) => ipcRenderer.invoke('courses:reset-progress', id),
+  globalSearch: (query: string) => ipcRenderer.invoke('courses:global-search', query),
 
   // Playback
   getPlaybackUrl: (lessonId: string) => ipcRenderer.invoke('playback:get-url', lessonId),
@@ -100,6 +102,7 @@ const api = {
   listRcloneRemotes: (customPath?: string) => ipcRenderer.invoke('rclone:list-remotes', customPath),
   testRcloneRemote: (remotePath: string) => ipcRenderer.invoke('rclone:test-remote', remotePath),
   listRcloneFolders: (remotePath: string) => ipcRenderer.invoke('rclone:list-folders', remotePath),
+  getRcloneDiagnostics: (customPath?: string, remotePath?: string) => ipcRenderer.invoke('rclone:diagnostics', customPath, remotePath),
 
   // Settings & DB
   getSettings: () => ipcRenderer.invoke('settings:get'),
@@ -109,6 +112,15 @@ const api = {
   restoreDatabase: () => ipcRenderer.invoke('settings:restore'),
   checkDbIntegrity: () => ipcRenderer.invoke('settings:check-integrity'),
   openPath: (targetPath: string) => ipcRenderer.invoke('settings:open-path', targetPath),
+  exportUserDataJson: () => ipcRenderer.invoke('settings:export-json'),
+  clearCache: () => ipcRenderer.invoke('settings:clear-cache'),
+  resetLocalData: () => ipcRenderer.invoke('settings:reset-local-data'),
+
+  // Folder Explorer
+  explorerListRemote: (remoteName: string, subfolder?: string) =>
+    ipcRenderer.invoke('explorer:list-remote', { remoteName, subfolder }),
+  explorerListLocal: (folderPath?: string) =>
+    ipcRenderer.invoke('explorer:list-local', folderPath),
 };
 
 export type WindowApi = typeof api;

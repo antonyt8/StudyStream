@@ -3,7 +3,7 @@ import { Note, Course } from '../types';
 import { FileText, Search, Clock, Trash2, Pin, Play, BookOpen } from 'lucide-react';
 
 interface NotesPageProps {
-  onOpenPlayer: (courseId: string, lessonId: string) => void;
+  onOpenPlayer: (courseId: string, lessonId: string, initialTime?: number) => void;
 }
 
 export const NotesPage: React.FC<NotesPageProps> = ({ onOpenPlayer }) => {
@@ -163,7 +163,7 @@ export const NotesPage: React.FC<NotesPageProps> = ({ onOpenPlayer }) => {
 
                 {note.lesson_id && (
                   <button
-                    onClick={() => onOpenPlayer(note.course_id, note.lesson_id!)}
+                    onClick={() => onOpenPlayer(note.course_id, note.lesson_id!, note.timestamp_seconds !== null && note.timestamp_seconds !== undefined ? Number(note.timestamp_seconds) : undefined)}
                     className="flex items-center gap-1 text-primary-400 hover:text-primary-300 font-semibold text-xs"
                   >
                     <Play className="w-3 h-3 fill-current" />

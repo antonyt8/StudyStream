@@ -25,4 +25,13 @@ export function registerCoursesIpc(): void {
     coursesRepo.delete(id);
     return { success: true };
   });
+
+  ipcMain.handle('courses:reset-progress', async (_, id: string) => {
+    coursesRepo.resetProgress(id);
+    return { success: true };
+  });
+
+  ipcMain.handle('courses:global-search', async (_, query: string) => {
+    return coursesRepo.globalSearch(query);
+  });
 }

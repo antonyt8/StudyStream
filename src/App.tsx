@@ -17,7 +17,7 @@ import { ScanProgress, DashboardStats } from './types';
 export default function App() {
   const [activePage, setActivePage] = useState<ActivePage>('dashboard');
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
-  const [activeLesson, setActiveLesson] = useState<{ courseId: string; lessonId: string } | null>(null);
+  const [activeLesson, setActiveLesson] = useState<{ courseId: string; lessonId: string; initialTime?: number } | null>(null);
 
   // Global search & stats
   const [searchQuery, setSearchQuery] = useState('');
@@ -41,8 +41,14 @@ export default function App() {
   useEffect(() => {
     refreshStats();
 
-    // Listen to live scan progress IPC
     if (window.api) {
+      window.api.getSettings().then((s) => {
+        if (s?.theme) {
+          document.documentElement.classList.toggle('light', s.theme === 'light');
+        }
+      }).catch(() => {});
+
+      // Listen to live scan progress IPC
       const unsub = window.api.onScanProgress((prog: ScanProgress) => {
         setScanProgress(prog);
         if (prog.status === 'completed') {
@@ -90,8 +96,8 @@ export default function App() {
     }
   };
 
-  const handleOpenPlayer = (courseId: string, lessonId: string) => {
-    setActiveLesson({ courseId, lessonId });
+  const handleOpenPlayer = (courseId: string, lessonId: string, initialTime?: number) => {
+    setActiveLesson({ courseId, lessonId, initialTime });
   };
 
   const handleClosePlayer = () => {
@@ -105,6 +111,7 @@ export default function App() {
       <Player
         courseId={activeLesson.courseId}
         lessonId={activeLesson.lessonId}
+        initialTime={activeLesson.initialTime}
         onBack={handleClosePlayer}
         onSelectLesson={(cId, lId) => setActiveLesson({ courseId: cId, lessonId: lId })}
       />
@@ -129,6 +136,8 @@ export default function App() {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onOpenAddSource={() => setIsAddSourceOpen(true)}
+          onSelectCourse={(id) => setSelectedCourseId(id)}
+          onOpenPlayer={handleOpenPlayer}
           streakDays={stats?.studyStreakDays || 0}
           todayMinutes={stats ? Math.round(stats.todayStudySeconds / 60) : 0}
         />
@@ -169,6 +178,7 @@ export default function App() {
               <Library
                 onSelectCourse={(id) => setSelectedCourseId(id)}
                 onOpenAddSource={() => setIsAddSourceOpen(true)}
+                initialStatus="in_progress"
               />
             )}
 

@@ -133,10 +133,16 @@ studystream/
    ```
 
 4. **Compilar a aplicação e gerar o executável/instalador**:
-   ```bash
-   npm run build
-   ```
-   O executável portátil descompactado será gerado em `release/win-unpacked/StudyStream.exe`.
+   - Para gerar o executável descompactado:
+     ```bash
+     npm run build
+     ```
+     O executável portátil será gerado em `release/win-unpacked/StudyStream.exe`.
+   - Para gerar o instalador oficial do Windows (NSIS Wizard):
+     ```bash
+     npm run build:win
+     ```
+     O instalador executável será gerado em `release/StudyStream-Setup-1.0.0.exe`.
 
 ---
 
@@ -184,10 +190,10 @@ O projeto conta com um conjunto completo de testes automatizados com 100% de apr
 | Arquivo de Teste | Suíte | Resultados |
 |---|---|---|
 | `tests/security.test.ts` | Validação de caminhos, rejeição de path traversal e caracteres proibidos | 4/4 Aprovados |
-| `tests/database.test.ts` | Schema SQLite, Repositórios, Auto-conclusão 90%, Streaks, Notas, Metas e Backup | 9/9 Aprovados |
+| `tests/database.test.ts` | Schema SQLite, Repositórios, Auto-conclusão 90%, Streaks, Notas, Metas, Backup, Materiais, Listas e Pesquisa Global | 13/13 Aprovados |
 | `tests/library.test.ts` | Indexador de diretórios locais, agrupamento Módulos/Aulas e ordenação natural | 1/1 Aprovados |
 | `tests/rclone.test.ts` | Detecção da versão instalada do Rclone e listagem segura de remotes (`gdrive:`) | 2/2 Aprovados |
-| **Total** | **Testes de Integração e Unidade** | **16/16 Aprovados (100%)** |
+| **Total** | **Testes de Integração e Unidade** | **20/20 Aprovados (100%)** |
 
 ---
 

@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { CourseCard } from '../components/courses/CourseCard';
-import { Course, Source } from '../types';
+import { Course, Source, CustomList } from '../types';
 import {
   Filter,
   ArrowUpDown,
   BookOpen,
   Plus,
   RefreshCw,
-  FolderOpen
+  FolderOpen,
+  Bookmark
 } from 'lucide-react';
 
 interface LibraryProps {
@@ -15,23 +16,27 @@ interface LibraryProps {
   onOpenAddSource: () => void;
   initialFavoritesOnly?: boolean;
   initialCompletedOnly?: boolean;
+  initialStatus?: string;
 }
 
 export const Library: React.FC<LibraryProps> = ({
   onSelectCourse,
   onOpenAddSource,
   initialFavoritesOnly = false,
-  initialCompletedOnly = false
+  initialCompletedOnly = false,
+  initialStatus
 }) => {
   const [courses, setCourses] = useState<Course[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
+  const [customLists, setCustomLists] = useState<CustomList[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filters
   const [search, setSearch] = useState('');
-  const [status, setStatus] = useState<string>(initialCompletedOnly ? 'completed' : 'all');
+  const [status, setStatus] = useState<string>(initialStatus || (initialCompletedOnly ? 'completed' : 'all'));
   const [favoritesOnly, setFavoritesOnly] = useState<boolean>(initialFavoritesOnly);
   const [sourceId, setSourceId] = useState<string>('');
+  const [selectedListId, setSelectedListId] = useState<string>('');
   const [sortBy, setSortBy] = useState<'title' | 'last_watched' | 'created_at' | 'progress'>('title');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
@@ -39,19 +44,27 @@ export const Library: React.FC<LibraryProps> = ({
     setLoading(true);
     try {
       if (window.api) {
-        const [cList, sList] = await Promise.all([
-          window.api.listCourses({
+        const [sList, lList] = await Promise.all([
+          window.api.listSources(),
+          window.api.listCustomLists()
+        ]);
+        setSources(sList);
+        setCustomLists(lList);
+
+        if (selectedListId) {
+          const listCourses = await window.api.getCoursesInList(selectedListId);
+          setCourses(listCourses);
+        } else {
+          const cList = await window.api.listCourses({
             search,
             status: status !== 'all' ? status : undefined,
             favoritesOnly,
             sourceId: sourceId || undefined,
             sortBy,
             sortOrder
-          }),
-          window.api.listSources()
-        ]);
-        setCourses(cList);
-        setSources(sList);
+          });
+          setCourses(cList);
+        }
       }
     } catch (err) {
       console.error('Error fetching courses:', err);
@@ -62,7 +75,7 @@ export const Library: React.FC<LibraryProps> = ({
 
   useEffect(() => {
     loadData();
-  }, [search, status, favoritesOnly, sourceId, sortBy, sortOrder]);
+  }, [search, status, favoritesOnly, sourceId, selectedListId, sortBy, sortOrder]);
 
   const handleToggleFavorite = async (id: string, e: React.MouseEvent) => {
     try {
@@ -70,6 +83,19 @@ export const Library: React.FC<LibraryProps> = ({
       loadData();
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleDeleteCourse = async (id: string, title: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.api) return;
+    if (confirm(`Deseja remover o curso "${title}" da sua biblioteca?\n\nOs arquivos originais de vídeo e apostilas NÃO serão apagados do seu computador ou Google Drive.`)) {
+      try {
+        await window.api.deleteCourse(id);
+        loadData();
+      } catch (err: any) {
+        alert(`Erro ao remover curso: ${err.message}`);
+      }
     }
   };
 
@@ -136,6 +162,25 @@ export const Library: React.FC<LibraryProps> = ({
             </div>
           )}
 
+          {/* Custom Lists Select */}
+          {customLists.length > 0 && (
+            <div className="flex items-center gap-2">
+              <Bookmark className="w-3.5 h-3.5 text-accent-cyan" />
+              <select
+                value={selectedListId}
+                onChange={(e) => setSelectedListId(e.target.value)}
+                className="bg-background border border-border text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-primary-500 max-w-[180px] truncate"
+              >
+                <option value="">Todas as Listas</option>
+                {customLists.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name} ({l.course_count || 0})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Favorites Checkbox */}
           <button
             onClick={() => setFavoritesOnly(!favoritesOnly)}
@@ -186,6 +231,7 @@ export const Library: React.FC<LibraryProps> = ({
               course={course}
               onSelect={onSelectCourse}
               onToggleFavorite={handleToggleFavorite}
+              onDeleteCourse={handleDeleteCourse}
             />
           ))}
         </div>

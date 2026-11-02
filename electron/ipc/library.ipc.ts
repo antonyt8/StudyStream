@@ -25,6 +25,7 @@ export function registerLibraryIpc(mainWindow: BrowserWindow): void {
     sourceType: SourceType;
     rootPath: string;
     remoteName?: string;
+    scanMode?: 'single_course' | 'multi_course';
   }) => {
     if (!data.name || !data.rootPath) {
       throw new Error('Nome e caminho da origem são obrigatórios');
@@ -37,6 +38,7 @@ export function registerLibraryIpc(mainWindow: BrowserWindow): void {
       source_type: data.sourceType,
       root_path: data.rootPath,
       remote_name: data.remoteName,
+      scan_mode: data.scanMode || 'single_course',
       enabled: 1
     });
 

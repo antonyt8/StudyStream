@@ -26,9 +26,14 @@ win:
     - target: dir
       arch:
         - x64
-    - target: portable
+    - target: nsis
       arch:
         - x64
 
-portable:
-  artifactName: StudyStream-Portable-${version}.exe
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: StudyStream
+  artifactName: StudyStream-Setup-${version}.exe

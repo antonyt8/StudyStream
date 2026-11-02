@@ -62,6 +62,7 @@ describe('Library Service Indexing Tests', () => {
       name: 'Origem de Teste Local',
       source_type: 'local',
       root_path: coursesFolder,
+      scan_mode: 'multi_course',
       enabled: 1
     });
 
@@ -83,5 +84,38 @@ describe('Library Service Indexing Tests', () => {
     expect(details?.modules[0].lessons?.length).toBe(2);
     expect(details?.modules[1].title).toBe('02 - Estruturas');
     expect(details?.modules[1].lessons?.length).toBe(1);
+  });
+
+  it('should preserve the exact folder name as the course name when indexing a single course folder', async () => {
+    const sourcesRepo = new SourcesRepository();
+    const coursesRepo = new CoursesRepository();
+    const libraryService = LibraryService.getInstance();
+
+    const singleCoursePath = path.join(coursesFolder, 'Curso Python');
+    const sourceId = 'src_single_course_test';
+
+    // Source name is different from folder name, single_course mode
+    sourcesRepo.create({
+      id: sourceId,
+      name: 'Nome de Origem Genérico',
+      source_type: 'local',
+      root_path: singleCoursePath,
+      scan_mode: 'single_course',
+      enabled: 1
+    });
+
+    const progress = await libraryService.scanSource(sourceId);
+    expect(progress.status).toBe('completed');
+
+    // The course title MUST be the folder name 'Curso Python', NOT 'Nome de Origem Genérico'
+    // and its subfolders must be modules inside this course
+    const courses = coursesRepo.list({ sourceId });
+    expect(courses.length).toBe(1);
+    expect(courses[0].title).toBe('Curso Python');
+
+    const details = coursesRepo.getFullCourse(courses[0].id);
+    expect(details?.modules.length).toBe(2);
+    expect(details?.modules.some(m => m.title === '01 - Introducao')).toBe(true);
+    expect(details?.modules.some(m => m.title === '02 - Estruturas')).toBe(true);
   });
 });

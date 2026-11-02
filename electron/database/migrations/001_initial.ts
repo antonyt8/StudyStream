@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS sources (
   root_path TEXT NOT NULL,
   remote_name TEXT,
   enabled INTEGER NOT NULL DEFAULT 1,
+  scan_mode TEXT NOT NULL DEFAULT 'single_course',
   last_scan_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -191,7 +192,20 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- 16. Materiais Complementares (PDFs, apostilas, docs, markdown, zips)
+CREATE TABLE IF NOT EXISTS materials (
+  id TEXT PRIMARY KEY,
+  course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+  module_id TEXT REFERENCES modules(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  file_type TEXT NOT NULL,
+  file_size INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Índices de performance
+CREATE INDEX IF NOT EXISTS idx_materials_course ON materials(course_id);
 CREATE INDEX IF NOT EXISTS idx_courses_source ON courses(source_id);
 CREATE INDEX IF NOT EXISTS idx_courses_category ON courses(category_id);
 CREATE INDEX IF NOT EXISTS idx_courses_favorite ON courses(is_favorite);

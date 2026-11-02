@@ -22,7 +22,14 @@ export default defineConfig({
         input: path.join(__dirname, 'electron/preload.ts'),
         vite: {
           build: {
-            outDir: 'dist-electron'
+            outDir: 'dist-electron',
+            rollupOptions: {
+              output: {
+                format: 'cjs',
+                entryFileNames: '[name].cjs',
+                inlineDynamicImports: true
+              }
+            }
           }
         }
       },
@@ -36,5 +43,8 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    watch: {
+      ignored: ['**/release/**', '**/dist/**', '**/dist-electron/**', '**/*.tmp']
+    }
   }
 });
