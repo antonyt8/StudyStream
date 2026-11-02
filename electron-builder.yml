@@ -1,0 +1,30 @@
+appId: com.studystream.desktop
+productName: StudyStream
+copyright: Copyright © 2026 StudyStream
+
+directories:
+  output: release
+
+files:
+  - dist
+  - dist-electron
+  - node_modules/sql.js
+  - package.json
+  - "!**/*.ts"
+  - "!src/**"
+
+extraMetadata:
+  main: dist-electron/main.js
+
+win:
+  sign: null
+  target:
+    - target: dir
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+
+portable:
+  artifactName: StudyStream-Portable-${version}.exe
