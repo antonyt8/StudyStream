@@ -1,5 +1,6 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import path from 'node:path';
+import fs from 'node:fs';
 import { DownloadsRepository } from '../database/repositories/downloads.repo';
 import { LessonsRepository } from '../database/repositories/lessons.repo';
 import { CoursesRepository } from '../database/repositories/courses.repo';
@@ -17,10 +18,15 @@ export function registerDownloadsIpc(mainWindow: BrowserWindow): void {
     return downloadsRepo.list();
   });
 
-  ipcMain.handle('downloads:start', async (_, lessonId: string) => {
+  const startDownloadInternal = async (lessonId: string) => {
     const lesson = lessonsRepo.getById(lessonId);
     if (!lesson || !lesson.remote_path) {
-      throw new Error('Aula remota não encontrada para download');
+      return null;
+    }
+
+    // Check if already completed or local file exists
+    if (lesson.local_path && fs.existsSync(lesson.local_path)) {
+      return null;
     }
 
     const course = coursesRepo.getById(lesson.course_id);
@@ -76,6 +82,23 @@ export function registerDownloadsIpc(mainWindow: BrowserWindow): void {
     })();
 
     return dlItem;
+  };
+
+  ipcMain.handle('downloads:start', async (_, lessonId: string) => {
+    const item = await startDownloadInternal(lessonId);
+    if (!item) {
+      throw new Error('Aula não pôde ser baixada ou já se encontra disponível localmente.');
+    }
+    return item;
+  });
+
+  ipcMain.handle('downloads:start-batch', async (_, lessonIds: string[]) => {
+    let count = 0;
+    for (const lid of lessonIds) {
+      const res = await startDownloadInternal(lid);
+      if (res) count++;
+    }
+    return { queuedCount: count };
   });
 
   ipcMain.handle('downloads:delete', async (_, id: string) => {

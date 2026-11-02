@@ -8,7 +8,7 @@ export class NotesRepository {
     let sql = `
       SELECT 
         n.id, n.course_id, n.lesson_id, n.title, n.content, 
-        n.timestamp_seconds, n.is_pinned, n.created_at, n.updated_at,
+        n.timestamp_seconds, n.snapshot_data, n.is_pinned, n.created_at, n.updated_at,
         c.title AS course_title,
         l.title AS lesson_title
       FROM notes n
@@ -42,12 +42,13 @@ export class NotesRepository {
     title: string;
     content: string;
     timestampSeconds?: number;
+    snapshotData?: string;
   }): Note {
     const id = `note_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const now = new Date().toISOString();
     this.db.run(`
-      INSERT INTO notes (id, course_id, lesson_id, title, content, timestamp_seconds, is_pinned, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+      INSERT INTO notes (id, course_id, lesson_id, title, content, timestamp_seconds, snapshot_data, is_pinned, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
     `, [
       id,
       data.courseId,
@@ -55,6 +56,7 @@ export class NotesRepository {
       data.title,
       data.content,
       data.timestampSeconds !== undefined ? data.timestampSeconds : null,
+      data.snapshotData || null,
       now,
       now
     ]);

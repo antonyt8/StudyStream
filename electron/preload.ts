@@ -50,8 +50,10 @@ const api = {
   // Notes & Bookmarks
   listNotes: (filter?: { courseId?: string; lessonId?: string; search?: string }) =>
     ipcRenderer.invoke('notes:list', filter),
-  createNote: (data: { courseId: string; lessonId?: string; title: string; content: string; timestampSeconds?: number }) =>
+  createNote: (data: { courseId: string; lessonId?: string; title: string; content: string; timestampSeconds?: number; snapshotData?: string }) =>
     ipcRenderer.invoke('notes:create', data),
+  exportNotesToMarkdown: (params: { defaultFileName: string; markdownContent: string }) =>
+    ipcRenderer.invoke('notes:export-markdown', params),
   updateNote: (id: string, data: { title?: string; content?: string; isPinned?: boolean }) =>
     ipcRenderer.invoke('notes:update', id, data),
   deleteNote: (id: string) => ipcRenderer.invoke('notes:delete', id),
@@ -85,6 +87,7 @@ const api = {
   // Downloads
   listDownloads: () => ipcRenderer.invoke('downloads:list'),
   startDownload: (lessonId: string) => ipcRenderer.invoke('downloads:start', lessonId),
+  startBatchDownload: (lessonIds: string[]) => ipcRenderer.invoke('downloads:start-batch', lessonIds),
   deleteDownload: (id: string) => ipcRenderer.invoke('downloads:delete', id),
   onDownloadProgress: (callback: (progress: any) => void) => {
     const handler = (_: any, data: any) => callback(data);

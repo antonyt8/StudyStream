@@ -85,6 +85,13 @@ export class DatabaseService {
     } catch {
       // Column already exists
     }
+
+    // Ensure snapshot_data column exists for notes
+    try {
+      this.db.run(`ALTER TABLE notes ADD COLUMN snapshot_data TEXT;`);
+    } catch {
+      // Column already exists
+    }
   }
 
   public getDbPath(): string {

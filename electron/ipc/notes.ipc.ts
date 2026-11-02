@@ -1,4 +1,5 @@
-import { ipcMain } from 'electron';
+import { ipcMain, dialog } from 'electron';
+import fs from 'node:fs';
 import { NotesRepository } from '../database/repositories/notes.repo';
 import { BookmarksRepository } from '../database/repositories/bookmarks.repo';
 
@@ -17,8 +18,24 @@ export function registerNotesAndBookmarksIpc(): void {
     title: string;
     content: string;
     timestampSeconds?: number;
+    snapshotData?: string;
   }) => {
     return notesRepo.create(data);
+  });
+
+  ipcMain.handle('notes:export-markdown', async (_, params: { defaultFileName: string; markdownContent: string }) => {
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: 'Exportar Caderno de Anotações',
+      defaultPath: params.defaultFileName || 'Anotacoes-StudyStream.md',
+      filters: [{ name: 'Markdown', extensions: ['md'] }]
+    });
+
+    if (canceled || !filePath) {
+      return { success: false, canceled: true };
+    }
+
+    await fs.promises.writeFile(filePath, params.markdownContent, 'utf-8');
+    return { success: true, filePath };
   });
 
   ipcMain.handle('notes:update', async (_, id: string, data: { title?: string; content?: string; isPinned?: boolean }) => {

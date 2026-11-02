@@ -89,8 +89,37 @@ export class PlaybackService {
         const fileSize = stat.size;
         const range = req.headers.range;
 
-        // Content-Type by extension
         const ext = path.extname(decodedPath).toLowerCase();
+
+        // Subtitles support (.vtt and .srt on-the-fly conversion)
+        if (ext === '.vtt') {
+          res.writeHead(200, {
+            'Content-Type': 'text/vtt; charset=utf-8',
+            'Access-Control-Allow-Origin': '*'
+          });
+          fs.createReadStream(decodedPath).pipe(res);
+          return;
+        }
+
+        if (ext === '.srt') {
+          try {
+            const srtContent = fs.readFileSync(decodedPath, 'utf-8');
+            const vttContent = 'WEBVTT\n\n' + srtContent
+              .replace(/\r\n|\r/g, '\n')
+              .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+            res.writeHead(200, {
+              'Content-Type': 'text/vtt; charset=utf-8',
+              'Access-Control-Allow-Origin': '*'
+            });
+            res.end(vttContent);
+            return;
+          } catch (e: any) {
+            res.writeHead(500);
+            res.end(`Error parsing subtitle: ${e.message}`);
+            return;
+          }
+        }
+
         let mime = 'video/mp4';
         if (ext === '.webm') mime = 'video/webm';
         else if (ext === '.mkv') mime = 'video/x-matroska';
@@ -163,13 +192,50 @@ export class PlaybackService {
     remotePath?: string;
     sourceRoot: string;
     remoteName?: string;
-  }): Promise<{ url: string; error?: string }> {
+  }): Promise<{ url: string; subtitles?: Array<{ label: string; src: string; srclang: string }>; error?: string }> {
     try {
+      let subtitles: Array<{ label: string; src: string; srclang: string }> = [];
+
       // 1. If local path exists, prioritize local playback
       if (params.localPath && fs.existsSync(params.localPath)) {
         const encoded = encodeURIComponent(params.localPath);
+
+        // Discover matching subtitle files (.srt, .vtt)
+        try {
+          const dir = path.dirname(params.localPath);
+          const baseName = path.basename(params.localPath, path.extname(params.localPath)).toLowerCase();
+          const candidateDirs = [dir, path.join(dir, 'subs'), path.join(dir, 'subtitles')];
+
+          for (const cDir of candidateDirs) {
+            if (fs.existsSync(cDir)) {
+              const files = fs.readdirSync(cDir);
+              for (const f of files) {
+                const fLower = f.toLowerCase();
+                if (fLower.endsWith('.srt') || fLower.endsWith('.vtt')) {
+                  const fBase = f.slice(0, f.lastIndexOf('.')).toLowerCase();
+                  if (fBase.includes(baseName) || baseName.includes(fBase) || files.filter(x => x.toLowerCase().endsWith('.mp4')).length <= 1) {
+                    const subPath = path.join(cDir, f);
+                    const encodedSub = encodeURIComponent(subPath);
+                    const isEn = fLower.includes('en') || fLower.includes('eng');
+                    const isEs = fLower.includes('es') || fLower.includes('esp');
+                    const langLabel = isEn ? 'Inglês' : isEs ? 'Espanhol' : 'Português';
+                    subtitles.push({
+                      label: `${langLabel} (${f})`,
+                      src: `http://127.0.0.1:${this.localServerPort}/sub?file=${encodedSub}&token=${this.sessionToken}`,
+                      srclang: isEn ? 'en' : isEs ? 'es' : 'pt'
+                    });
+                  }
+                }
+              }
+            }
+          }
+        } catch (subErr) {
+          console.warn('Subtitle scan notice:', subErr);
+        }
+
         return {
-          url: `http://127.0.0.1:${this.localServerPort}/video?file=${encoded}&token=${this.sessionToken}`
+          url: `http://127.0.0.1:${this.localServerPort}/video?file=${encoded}&token=${this.sessionToken}`,
+          subtitles
         };
       }
 
@@ -202,7 +268,7 @@ export class PlaybackService {
         const encodedPath = relative.split(/[/\\]/).map(segment => encodeURIComponent(segment)).join('/');
         const fullUrl = `${serverInfo.url}/${encodedPath}`;
 
-        return { url: fullUrl };
+        return { url: fullUrl, subtitles };
       }
 
       return { url: '', error: 'Arquivo não encontrado nem localmente nem remotamente' };

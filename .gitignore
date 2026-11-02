@@ -72,3 +72,12 @@ desktop.ini
 
 # Requisitos / Prompt notes
 requisito.md
+
+# Media & Downloaded course folders
+*.mp4
+*.mkv
+*.webm
+*.avi
+*.mov
+*.pdf
+Repertórios para Redação com Heitor Ferr/

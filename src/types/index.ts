@@ -105,6 +105,7 @@ export interface Note {
   title: string;
   content: string;
   timestamp_seconds?: number;
+  snapshot_data?: string;
   is_pinned: number;
   created_at: string;
   updated_at: string;

@@ -21,7 +21,12 @@ import {
   Clock,
   Sparkles,
   Loader2,
-  AlertTriangle
+  AlertTriangle,
+  Camera,
+  Subtitles,
+  Tv,
+  X,
+  ExternalLink
 } from 'lucide-react';
 
 interface PlayerProps {
@@ -45,6 +50,8 @@ export const Player: React.FC<PlayerProps> = ({
   // Data state
   const [courseData, setCourseData] = useState<{ course: Course; modules: CourseModule[] } | null>(null);
   const [videoUrl, setVideoUrl] = useState<string>('');
+  const [subtitles, setSubtitles] = useState<Array<{ label: string; src: string; srclang: string }>>([]);
+  const [subtitlesEnabled, setSubtitlesEnabled] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoadingMedia, setIsLoadingMedia] = useState<boolean>(true);
 
@@ -58,12 +65,14 @@ export const Player: React.FC<PlayerProps> = ({
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [controlsVisible, setControlsVisible] = useState<boolean>(true);
 
-  // Sidebar state
+  // Sidebar & Study state
   const [activeTab, setActiveTab] = useState<'lessons' | 'notes' | 'bookmarks'>('lessons');
   const [notes, setNotes] = useState<Note[]>([]);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [newNoteContent, setNewNoteContent] = useState<string>('');
   const [newBookmarkTitle, setNewBookmarkTitle] = useState<string>('');
+  const [snapshotPreview, setSnapshotPreview] = useState<string | null>(null);
+  const [zoomSnapshot, setZoomSnapshot] = useState<string | null>(null);
 
   // Study session tracking
   const sessionStartRef = useRef<number>(Date.now());
@@ -78,6 +87,8 @@ export const Player: React.FC<PlayerProps> = ({
       setIsLoadingMedia(true);
       setLoadError(null);
       setVideoUrl('');
+      setSubtitles([]);
+      setSnapshotPreview(null);
 
       try {
         if (!window.api) return;
@@ -86,7 +97,7 @@ export const Player: React.FC<PlayerProps> = ({
         const details = await window.api.getCourseDetails(courseId);
         if (!isCancelled) setCourseData(details);
 
-        // 2. Fetch media URL
+        // 2. Fetch media URL and subtitles
         const mediaRes = await window.api.getPlaybackUrl(lessonId);
         if (isCancelled) return;
 
@@ -94,6 +105,9 @@ export const Player: React.FC<PlayerProps> = ({
           setLoadError(mediaRes.error || 'Não foi possível carregar o vídeo');
         } else {
           setVideoUrl(mediaRes.url);
+          if (mediaRes.subtitles && mediaRes.subtitles.length > 0) {
+            setSubtitles(mediaRes.subtitles);
+          }
         }
 
         // 3. Load notes & bookmarks
@@ -326,6 +340,64 @@ export const Player: React.FC<PlayerProps> = ({
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
+  // Capture frame as screenshot
+  const handleCaptureFrame = () => {
+    if (!videoRef.current) return;
+    try {
+      const video = videoRef.current;
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 360;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        setSnapshotPreview(dataUrl);
+      }
+    } catch (err) {
+      console.error('Erro ao capturar frame:', err);
+    }
+  };
+
+  // Toggle Picture-in-Picture
+  const togglePiP = async () => {
+    if (!videoRef.current) return;
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else {
+        await videoRef.current.requestPictureInPicture();
+      }
+    } catch (err) {
+      console.warn('PiP notice:', err);
+    }
+  };
+
+  // Automatically generate course cover if none exists
+  const handleAutoCover = () => {
+    if (courseData?.course && !courseData.course.cover_path && videoRef.current) {
+      try {
+        const video = videoRef.current;
+        if (video.videoWidth > 0 && video.videoHeight > 0) {
+          const canvas = document.createElement('canvas');
+          canvas.width = 480;
+          canvas.height = 270;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const coverData = canvas.toDataURL('image/jpeg', 0.8);
+            if (coverData && coverData.length > 500) {
+              window.api.updateCourse(courseId, { cover_path: coverData });
+              setCourseData(prev => prev ? { ...prev, course: { ...prev.course, cover_path: coverData } } : null);
+            }
+          }
+        }
+      } catch (err) {
+        // Ignore CORS/canvas notice
+      }
+    }
+  };
+
   // Add Note
   const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -337,10 +409,12 @@ export const Player: React.FC<PlayerProps> = ({
         lessonId,
         title: `Nota em ${formatTime(currentTime)}`,
         content: newNoteContent.trim(),
-        timestampSeconds: currentTime
+        timestampSeconds: currentTime,
+        snapshotData: snapshotPreview || undefined
       });
       setNotes(prev => [created, ...prev]);
       setNewNoteContent('');
+      setSnapshotPreview(null);
     } catch (err) {
       console.error(err);
     }
@@ -448,6 +522,7 @@ export const Player: React.FC<PlayerProps> = ({
               onClick={togglePlay}
               onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}
+              onLoadedData={handleAutoCover}
               onTimeUpdate={() => {
                 if (videoRef.current) {
                   setCurrentTime(videoRef.current.currentTime);
@@ -473,7 +548,18 @@ export const Player: React.FC<PlayerProps> = ({
                   handleNextLesson();
                 }
               }}
-            />
+            >
+              {subtitlesEnabled && subtitles.map((sub, idx) => (
+                <track
+                  key={sub.src}
+                  kind="subtitles"
+                  label={sub.label}
+                  src={sub.src}
+                  srcLang={sub.srclang}
+                  default={idx === 0}
+                />
+              ))}
+            </video>
           )}
 
           {/* Bottom Player Controls Bar */}
@@ -482,8 +568,8 @@ export const Player: React.FC<PlayerProps> = ({
               controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
             }`}
           >
-            {/* Timeline Range Slider */}
-            <div className="relative flex items-center group/slider">
+            {/* Timeline Range Slider with Visual Interactive Markers */}
+            <div className="relative flex items-center group/slider py-2">
               <input
                 type="range"
                 min={0}
@@ -496,8 +582,71 @@ export const Player: React.FC<PlayerProps> = ({
                     videoRef.current.currentTime = val;
                   }
                 }}
-                className="w-full h-1.5 bg-white/20 hover:h-2.5 rounded-full appearance-none cursor-pointer transition-all"
+                className="w-full h-1.5 bg-white/20 hover:h-2.5 rounded-full appearance-none cursor-pointer transition-all z-10"
               />
+
+              {/* Render Notes & Bookmarks Markers on Timeline */}
+              {duration > 0 && (
+                <div className="absolute inset-x-0 h-1.5 pointer-events-none flex items-center z-20">
+                  {/* Notes markers (Amber) */}
+                  {notes
+                    .filter(n => n.timestamp_seconds !== null && n.timestamp_seconds !== undefined && n.timestamp_seconds >= 0 && n.timestamp_seconds <= duration)
+                    .map((n) => {
+                      const posPct = ((n.timestamp_seconds || 0) / duration) * 100;
+                      return (
+                        <div
+                          key={`note-marker-${n.id}`}
+                          style={{ left: `${posPct}%` }}
+                          className="absolute -translate-x-1/2 pointer-events-auto group/marker cursor-pointer"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (videoRef.current && n.timestamp_seconds !== undefined) {
+                              videoRef.current.currentTime = n.timestamp_seconds;
+                              setCurrentTime(n.timestamp_seconds);
+                            }
+                          }}
+                        >
+                          <div className="w-2.5 h-2.5 rounded-full bg-amber-400 border border-black shadow hover:scale-150 transition-transform" />
+                          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 hidden group-hover/marker:flex flex-col items-center z-50 pointer-events-none">
+                            <div className="bg-black/95 text-white border border-amber-500/50 rounded px-2 py-1 text-[10px] whitespace-nowrap shadow-xl">
+                              <span className="font-mono text-amber-400 font-bold">{formatTime(n.timestamp_seconds || 0)}</span>: {n.title || n.content.slice(0, 30)}
+                            </div>
+                            <div className="w-1.5 h-1.5 bg-amber-500 rotate-45 -mt-0.5" />
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                  {/* Bookmark markers (Cyan) */}
+                  {bookmarks
+                    .filter(b => b.timestamp_seconds >= 0 && b.timestamp_seconds <= duration)
+                    .map((b) => {
+                      const posPct = (b.timestamp_seconds / duration) * 100;
+                      return (
+                        <div
+                          key={`bm-marker-${b.id}`}
+                          style={{ left: `${posPct}%` }}
+                          className="absolute -translate-x-1/2 pointer-events-auto group/marker cursor-pointer"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (videoRef.current) {
+                              videoRef.current.currentTime = b.timestamp_seconds;
+                              setCurrentTime(b.timestamp_seconds);
+                            }
+                          }}
+                        >
+                          <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 border border-black shadow hover:scale-150 transition-transform" />
+                          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 hidden group-hover/marker:flex flex-col items-center z-50 pointer-events-none">
+                            <div className="bg-black/95 text-white border border-cyan-500/50 rounded px-2 py-1 text-[10px] whitespace-nowrap shadow-xl">
+                              <span className="font-mono text-cyan-400 font-bold">{formatTime(b.timestamp_seconds)}</span>: {b.title}
+                            </div>
+                            <div className="w-1.5 h-1.5 bg-cyan-500 rotate-45 -mt-0.5" />
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
             </div>
 
             {/* Bottom Button Row */}
@@ -565,7 +714,30 @@ export const Player: React.FC<PlayerProps> = ({
               </div>
 
               {/* Right Controls */}
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                {/* Subtitle Toggle */}
+                {subtitles.length > 0 && (
+                  <button
+                    onClick={() => setSubtitlesEnabled(!subtitlesEnabled)}
+                    className={`p-2 transition-colors rounded ${
+                      subtitlesEnabled ? 'text-primary-400 bg-white/10' : 'text-slate-400 hover:text-white'
+                    }`}
+                    title={subtitlesEnabled ? 'Ocultar Legendas' : 'Ativar Legendas'}
+                  >
+                    <Subtitles className="w-5 h-5" />
+                  </button>
+                )}
+
+                {/* Picture in Picture */}
+                <button
+                  onClick={togglePiP}
+                  className="p-2 text-slate-300 hover:text-white transition-colors"
+                  title="Picture-in-Picture (Janela Flutuante)"
+                >
+                  <Tv className="w-5 h-5" />
+                </button>
+
+                {/* Fullscreen */}
                 <button
                   onClick={toggleFullscreen}
                   className="p-2 text-slate-300 hover:text-white transition-colors"
@@ -687,7 +859,35 @@ export const Player: React.FC<PlayerProps> = ({
                     <Clock className="w-3 h-3 text-primary-400" />
                     Momento: <strong className="text-white">{formatTime(currentTime)}</strong>
                   </span>
+                  <button
+                    type="button"
+                    onClick={handleCaptureFrame}
+                    className="flex items-center gap-1 text-[11px] text-primary-300 hover:text-white font-semibold px-2 py-0.5 rounded bg-primary-950/80 border border-primary-700/60 hover:bg-primary-900 transition-colors"
+                    title="Capturar imagem atual do vídeo e anexar à nota"
+                  >
+                    <Camera className="w-3 h-3 text-primary-400" />
+                    <span>Print da Tela</span>
+                  </button>
                 </div>
+
+                {/* Snapshot Preview */}
+                {snapshotPreview && (
+                  <div className="relative rounded-lg overflow-hidden border border-primary-500/50 bg-black/60 group/preview">
+                    <img src={snapshotPreview} alt="Captura do vídeo" className="w-full h-24 object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => setSnapshotPreview(null)}
+                      className="absolute top-1 right-1 p-1 bg-black/80 hover:bg-rose-600 text-white rounded-full transition-colors"
+                      title="Remover print"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                    <span className="absolute bottom-1 left-1.5 text-[9px] font-mono bg-black/80 text-primary-300 px-1.5 py-0.5 rounded border border-white/10">
+                      Print anexado • {formatTime(currentTime)}
+                    </span>
+                  </div>
+                )}
+
                 <textarea
                   rows={2}
                   placeholder="Escreva uma anotação desta aula..."
@@ -738,7 +938,28 @@ export const Player: React.FC<PlayerProps> = ({
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
+
                       <p className="text-xs text-slate-200 whitespace-pre-wrap">{n.content}</p>
+
+                      {/* Attached Snapshot Image */}
+                      {n.snapshot_data && (
+                        <div
+                          className="mt-2 rounded-lg overflow-hidden border border-border/70 cursor-pointer group/snap relative bg-black"
+                          onClick={() => setZoomSnapshot(n.snapshot_data || null)}
+                          title="Clique para ampliar o print da aula"
+                        >
+                          <img
+                            src={n.snapshot_data}
+                            alt="Screenshot da aula"
+                            className="w-full h-24 object-cover group-hover/snap:scale-105 transition-transform duration-300"
+                          />
+                          <div className="absolute inset-0 bg-black/20 group-hover/snap:bg-transparent transition-colors flex items-center justify-center opacity-0 group-hover/snap:opacity-100">
+                            <span className="px-2 py-1 rounded bg-black/70 text-[10px] text-white flex items-center gap-1">
+                              <ExternalLink className="w-3 h-3" /> Ampliar
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))
                 ) : (
@@ -816,6 +1037,24 @@ export const Player: React.FC<PlayerProps> = ({
           )}
         </aside>
       </div>
+
+      {/* Zoom Snapshot Modal */}
+      {zoomSnapshot && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fadeIn"
+          onClick={() => setZoomSnapshot(null)}
+        >
+          <div className="relative max-w-4xl max-h-[90vh] bg-background-surface rounded-xl border border-border p-2 overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+            <img src={zoomSnapshot} alt="Screenshot ampliado" className="max-w-full max-h-[80vh] object-contain rounded-lg" />
+            <button
+              onClick={() => setZoomSnapshot(null)}
+              className="absolute top-4 right-4 p-2 bg-black/80 hover:bg-rose-600 text-white rounded-full transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

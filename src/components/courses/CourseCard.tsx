@@ -44,8 +44,15 @@ export const CourseCard: React.FC<CourseCardProps> = ({
     >
       {/* Thumbnail Banner */}
       <div className={`h-36 bg-gradient-to-tr ${getGradient(course.title)} p-4 flex flex-col justify-between relative overflow-hidden`}>
-        {/* Glow overlay */}
-        <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors" />
+        {course.cover_path && (
+          <img
+            src={course.cover_path.startsWith('data:') || course.cover_path.startsWith('http') ? course.cover_path : `studystream-media://file?path=${encodeURIComponent(course.cover_path)}`}
+            alt={course.title}
+            className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+          />
+        )}
+        {/* Glow & darkening overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/20 group-hover:from-black/70 group-hover:via-black/30 transition-colors" />
 
         {/* Top Badges */}
         <div className="relative z-10 flex items-center justify-between">

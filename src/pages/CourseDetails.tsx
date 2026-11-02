@@ -124,6 +124,95 @@ export const CourseDetails: React.FC<CourseDetailsProps> = ({
     }
   };
 
+  const handleDownloadCourse = async () => {
+    if (!data?.modules || !window.api) return;
+    const allRemoteLessons: string[] = [];
+    for (const mod of data.modules) {
+      for (const les of mod.lessons || []) {
+        if (les.remote_path && !les.local_path) {
+          allRemoteLessons.push(les.id);
+        }
+      }
+    }
+
+    if (allRemoteLessons.length === 0) {
+      alert('Todas as aulas deste curso já estão disponíveis offline!');
+      return;
+    }
+
+    try {
+      const res = await window.api.startBatchDownload(allRemoteLessons);
+      alert(`Download de ${res.queuedCount} aula(s) iniciado! Você pode acompanhar o progresso na aba Downloads.`);
+    } catch (err: any) {
+      alert(`Erro ao iniciar download do curso: ${err.message}`);
+    }
+  };
+
+  const handleDownloadModule = async (moduleId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!data?.modules || !window.api) return;
+    const targetMod = data.modules.find(m => m.id === moduleId);
+    if (!targetMod) return;
+
+    const moduleRemoteLessons: string[] = [];
+    for (const les of targetMod.lessons || []) {
+      if (les.remote_path && !les.local_path) {
+        moduleRemoteLessons.push(les.id);
+      }
+    }
+
+    if (moduleRemoteLessons.length === 0) {
+      alert('Todas as aulas deste módulo já estão disponíveis offline!');
+      return;
+    }
+
+    try {
+      const res = await window.api.startBatchDownload(moduleRemoteLessons);
+      alert(`Download de ${res.queuedCount} aula(s) do módulo "${targetMod.title}" iniciado!`);
+    } catch (err: any) {
+      alert(`Erro ao iniciar download do módulo: ${err.message}`);
+    }
+  };
+
+  const handleExportCourseNotes = async () => {
+    if (!data?.course || !window.api) return;
+    try {
+      const notes = await window.api.listNotes({ courseId });
+      if (!notes || notes.length === 0) {
+        alert('Este curso ainda não possui anotações para exportar.');
+        return;
+      }
+
+      const dateStr = new Date().toLocaleDateString('pt-BR');
+      let md = `# Caderno de Estudos: ${data.course.title}\n\n`;
+      md += `*Exportado do StudyStream em: ${dateStr}*\n\n---\n\n`;
+
+      for (const n of notes) {
+        const timeBadge = n.timestamp_seconds !== null && n.timestamp_seconds !== undefined
+          ? `[${Math.floor(n.timestamp_seconds / 60)}:${Math.floor(n.timestamp_seconds % 60).toString().padStart(2, '0')}]`
+          : '[Nota Geral]';
+        const les = n.lesson_title ? ` - *${n.lesson_title}*` : '';
+        md += `### ⏱️ ${timeBadge}${les}\n`;
+        md += `${n.content}\n\n`;
+        if (n.snapshot_data) {
+          md += `![Screenshot da Aula](${n.snapshot_data})\n\n`;
+        }
+        md += `---\n\n`;
+      }
+
+      const safeName = data.course.title.replace(/[<>:"/\\|?*]/g, '_');
+      const res = await window.api.exportNotesToMarkdown({
+        defaultFileName: `Anotacoes_${safeName}.md`,
+        markdownContent: md
+      });
+      if (res.success) {
+        alert(`Anotações exportadas com sucesso para:\n${res.filePath}`);
+      }
+    } catch (err: any) {
+      alert(`Erro ao exportar anotações: ${err.message}`);
+    }
+  };
+
   const handleToggleComplete = async (lesson: Lesson, e: React.MouseEvent) => {
     e.stopPropagation();
     const isCompleted = lesson.progress?.completed === 1;
@@ -315,8 +404,18 @@ export const CourseDetails: React.FC<CourseDetailsProps> = ({
       </button>
 
       {/* Course Hero Header */}
-      <div className="glass-card rounded-2xl p-6 md:p-8 border border-border flex flex-col md:flex-row gap-6 justify-between items-start">
-        <div className="space-y-3 max-w-2xl">
+      <div className="glass-card rounded-2xl p-6 md:p-8 border border-border flex flex-col md:flex-row gap-6 justify-between items-start relative overflow-hidden">
+        {course.cover_path && (
+          <div className="w-full md:w-56 h-36 md:h-44 rounded-xl overflow-hidden shrink-0 border border-border shadow-lg relative group">
+            <img
+              src={course.cover_path.startsWith('data:') || course.cover_path.startsWith('http') ? course.cover_path : `studystream-media://file?path=${encodeURIComponent(course.cover_path)}`}
+              alt={course.title}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            />
+          </div>
+        )}
+
+        <div className="space-y-3 flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-primary-950/80 text-primary-300 border border-primary-700/50">
               {isGoogleDrive ? <Cloud className="w-3.5 h-3.5 text-accent-cyan" /> : <HardDrive className="w-3.5 h-3.5" />}
@@ -382,6 +481,27 @@ export const CourseDetails: React.FC<CourseDetailsProps> = ({
               <span>{course.progress_percent ? 'Continuar Curso' : 'Começar a Assistir'}</span>
             </button>
           )}
+
+          {/* Download Course & Export Notes */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleDownloadCourse}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-background border border-border text-xs font-semibold text-slate-300 hover:text-white hover:bg-background-elevated transition-colors"
+              title="Baixar todas as aulas do curso para assistir offline"
+            >
+              <Download className="w-3.5 h-3.5 text-accent-cyan" />
+              <span>Baixar Curso</span>
+            </button>
+
+            <button
+              onClick={handleExportCourseNotes}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-background border border-border text-xs font-semibold text-slate-300 hover:text-white hover:bg-background-elevated transition-colors"
+              title="Exportar anotações do curso em arquivo Markdown (.md)"
+            >
+              <FileText className="w-3.5 h-3.5 text-primary-400" />
+              <span>Anotações (.md)</span>
+            </button>
+          </div>
 
           <div className="flex items-center gap-2">
             <button
@@ -520,8 +640,22 @@ export const CourseDetails: React.FC<CourseDetailsProps> = ({
                   </div>
                 </div>
 
-                <div className="text-xs font-semibold text-slate-400">
-                  {lessons.length} {lessons.length === 1 ? 'aula' : 'aulas'}
+                <div className="flex items-center gap-3">
+                  {lessons.some(l => l.remote_path && !l.local_path) && (
+                    <button
+                      type="button"
+                      onClick={(e) => handleDownloadModule(mod.id, e)}
+                      className="px-2.5 py-1 rounded-lg bg-background-elevated hover:bg-primary-600 text-slate-300 hover:text-white transition-colors flex items-center gap-1.5 text-xs font-semibold border border-border"
+                      title="Baixar todas as aulas deste módulo para assistir offline"
+                    >
+                      <Download className="w-3.5 h-3.5 text-accent-cyan" />
+                      <span>Baixar Módulo</span>
+                    </button>
+                  )}
+
+                  <div className="text-xs font-semibold text-slate-400">
+                    {lessons.length} {lessons.length === 1 ? 'aula' : 'aulas'}
+                  </div>
                 </div>
               </button>
 

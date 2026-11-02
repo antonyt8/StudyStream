@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS notes (
   title TEXT NOT NULL,
   content TEXT NOT NULL,
   timestamp_seconds REAL,
+  snapshot_data TEXT,
   is_pinned INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
