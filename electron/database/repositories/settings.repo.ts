@@ -23,11 +23,11 @@ export class SettingsRepository {
       remoteFolderPath: map['remoteFolderPath'] || '',
       startWithWindows: map['startWithWindows'] === 'true',
       dbPath: this.db.getDbPath(),
-      rcloneVfsCacheMode: (map['rcloneVfsCacheMode'] as any) || 'minimal',
-      rcloneVfsCacheMaxSize: map['rcloneVfsCacheMaxSize'] || '10G',
-      rcloneVfsCacheMaxAge: map['rcloneVfsCacheMaxAge'] || '24h',
-      rcloneVfsReadChunkSize: map['rcloneVfsReadChunkSize'] || '128M',
-      rcloneDirCacheTime: map['rcloneDirCacheTime'] || '5m',
+      rcloneVfsCacheMode: (map['rcloneVfsCacheMode'] as any) || 'full',
+      rcloneVfsCacheMaxSize: map['rcloneVfsCacheMaxSize'] || '15G',
+      rcloneVfsCacheMaxAge: map['rcloneVfsCacheMaxAge'] || '48h',
+      rcloneVfsReadChunkSize: map['rcloneVfsReadChunkSize'] || '32M',
+      rcloneDirCacheTime: map['rcloneDirCacheTime'] || '15m',
       rcloneBandwidthLimit: map['rcloneBandwidthLimit'] || 'off',
       rcloneBufferChunkStreams: parseInt(map['rcloneBufferChunkStreams'] || '4', 10) || 4
     };

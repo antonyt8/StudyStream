@@ -305,16 +305,23 @@ export class RcloneService {
     this.activePort = port;
     this.currentServerRemote = remotePath;
 
-    const cacheMode = options.vfsCacheMode || 'minimal';
-    const dirCacheTime = options.dirCacheTime || '5m';
+    const cacheMode = options.vfsCacheMode && options.vfsCacheMode !== 'minimal' ? options.vfsCacheMode : 'full';
+    const dirCacheTime = options.dirCacheTime || '15m';
 
     const args = [
       'serve', 'http', remotePath,
       '--addr', `127.0.0.1:${port}`,
       '--read-only',
       '--vfs-cache-mode', cacheMode,
-      '--dir-cache-time', dirCacheTime,
-      '--no-modtime'
+      '--vfs-read-ahead', '128M',
+      '--vfs-read-chunk-size', options.vfsReadChunkSize || '32M',
+      '--vfs-read-chunk-size-limit', '256M',
+      '--buffer-size', '64M',
+      '--drive-chunk-size', '64M',
+      '--vfs-fast-fingerprint',
+      '--no-checksum',
+      '--no-modtime',
+      '--dir-cache-time', dirCacheTime
     ];
 
     if (options.vfsCacheMaxSize && options.vfsCacheMaxSize !== '0') {
@@ -322,9 +329,6 @@ export class RcloneService {
     }
     if (options.vfsCacheMaxAge) {
       args.push('--vfs-cache-max-age', options.vfsCacheMaxAge);
-    }
-    if (options.vfsReadChunkSize) {
-      args.push('--vfs-read-chunk-size', options.vfsReadChunkSize);
     }
     if (options.bandwidthLimit && options.bandwidthLimit !== 'off') {
       args.push('--bwlimit', options.bandwidthLimit);

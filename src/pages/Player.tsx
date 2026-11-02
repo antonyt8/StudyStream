@@ -59,6 +59,7 @@ export const Player: React.FC<PlayerProps> = ({
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [duration, setDuration] = useState<number>(0);
+  const [bufferedEnd, setBufferedEnd] = useState<number>(0);
   const [volume, setVolume] = useState<number>(1);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
@@ -439,6 +440,21 @@ export const Player: React.FC<PlayerProps> = ({
     }
   };
 
+  // Track buffered ranges for visual buffer bar
+  const updateBufferProgress = () => {
+    if (videoRef.current && videoRef.current.buffered.length > 0) {
+      const buf = videoRef.current.buffered;
+      const cur = videoRef.current.currentTime;
+      for (let i = 0; i < buf.length; i++) {
+        if (buf.start(i) <= cur && cur <= buf.end(i)) {
+          setBufferedEnd(buf.end(i));
+          return;
+        }
+      }
+      setBufferedEnd(buf.end(buf.length - 1));
+    }
+  };
+
   return (
     <div
       ref={containerRef}
@@ -518,14 +534,18 @@ export const Player: React.FC<PlayerProps> = ({
             <video
               ref={videoRef}
               src={videoUrl}
+              preload="auto"
+              playsInline
               className="w-full h-full object-contain cursor-pointer"
               onClick={togglePlay}
               onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}
               onLoadedData={handleAutoCover}
+              onProgress={updateBufferProgress}
               onTimeUpdate={() => {
                 if (videoRef.current) {
                   setCurrentTime(videoRef.current.currentTime);
+                  updateBufferProgress();
                 }
               }}
               onLoadedMetadata={() => {
@@ -536,6 +556,7 @@ export const Player: React.FC<PlayerProps> = ({
                   if (seekTo > 0) {
                     videoRef.current.currentTime = seekTo;
                   }
+                  updateBufferProgress();
                 }
               }}
               onEnded={() => {
@@ -568,8 +589,16 @@ export const Player: React.FC<PlayerProps> = ({
               controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
             }`}
           >
-            {/* Timeline Range Slider with Visual Interactive Markers */}
+            {/* Timeline Range Slider with Visual Interactive Markers & Buffer Bar */}
             <div className="relative flex items-center group/slider py-2">
+              {/* Pre-buffered range bar (Netflix / YouTube style) */}
+              {duration > 0 && (
+                <div
+                  className="absolute left-0 h-1.5 bg-white/20 rounded-full pointer-events-none transition-all duration-300 z-0"
+                  style={{ width: `${Math.min(100, (bufferedEnd / duration) * 100)}%` }}
+                />
+              )}
+
               <input
                 type="range"
                 min={0}
@@ -582,7 +611,7 @@ export const Player: React.FC<PlayerProps> = ({
                     videoRef.current.currentTime = val;
                   }
                 }}
-                className="w-full h-1.5 bg-white/20 hover:h-2.5 rounded-full appearance-none cursor-pointer transition-all z-10"
+                className="w-full h-1.5 bg-white/10 hover:h-2.5 rounded-full appearance-none cursor-pointer transition-all z-10"
               />
 
               {/* Render Notes & Bookmarks Markers on Timeline */}

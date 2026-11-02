@@ -140,14 +140,20 @@ export class PlaybackService {
             return;
           }
 
+          if (req.socket) req.socket.setNoDelay(true);
           const chunksize = end - start + 1;
-          const stream = fs.createReadStream(decodedPath, { start, end });
+          const stream = fs.createReadStream(decodedPath, {
+            start,
+            end,
+            highWaterMark: 1024 * 1024 // 1MB chunk buffer for high-throughput video streaming
+          });
 
           res.writeHead(206, {
             'Content-Range': `bytes ${start}-${end}/${fileSize}`,
             'Accept-Ranges': 'bytes',
             'Content-Length': chunksize,
             'Content-Type': mime,
+            'Cache-Control': 'public, max-age=86400',
           });
 
           if (req.method === 'HEAD') {
@@ -157,16 +163,18 @@ export class PlaybackService {
           }
         } else {
           // Full file stream
+          if (req.socket) req.socket.setNoDelay(true);
           res.writeHead(200, {
             'Content-Length': fileSize,
             'Content-Type': mime,
             'Accept-Ranges': 'bytes',
+            'Cache-Control': 'public, max-age=86400',
           });
 
           if (req.method === 'HEAD') {
             res.end();
           } else {
-            fs.createReadStream(decodedPath).pipe(res);
+            fs.createReadStream(decodedPath, { highWaterMark: 1024 * 1024 }).pipe(res);
           }
         }
       } catch (err: any) {
