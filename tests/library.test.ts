@@ -118,4 +118,127 @@ describe('Library Service Indexing Tests', () => {
     expect(details?.modules.some(m => m.title === '01 - Introducao')).toBe(true);
     expect(details?.modules.some(m => m.title === '02 - Estruturas')).toBe(true);
   });
+
+  it('should format lesson titles cleanly when files are in subfolders', () => {
+    const libraryService = LibraryService.getInstance();
+
+    // 1. "1. Aula" -> "(Parte 1)"
+    expect(
+      libraryService.formatLessonTitle(
+        ['7. Aula 07 - Direitos Fundamentais - Direito à Vida'],
+        '1. Aula'
+      )
+    ).toBe('7. Aula 07 - Direitos Fundamentais - Direito à Vida (Parte 1)');
+
+    // 2. "2. Aula" -> "(Parte 2)"
+    expect(
+      libraryService.formatLessonTitle(
+        ['7. Aula 07 - Direitos Fundamentais - Direito à Vida'],
+        '2. Aula'
+      )
+    ).toBe('7. Aula 07 - Direitos Fundamentais - Direito à Vida (Parte 2)');
+
+    // 3. Just "Aula" -> does not duplicate "Aula"
+    expect(
+      libraryService.formatLessonTitle(
+        ['7. Aula 07 - Direitos Fundamentais - Direito à Vida'],
+        'Aula'
+      )
+    ).toBe('7. Aula 07 - Direitos Fundamentais - Direito à Vida');
+
+    // 4. Detailed file title with aula prefix preserved
+    expect(
+      libraryService.formatLessonTitle(
+        ['7. Aula 07 - Direitos Fundamentais - Direito à Vida'],
+        '1. Aula 07 - Direito.08.25'
+      )
+    ).toBe('1. Aula 07 - Direito.08.25');
+
+    // 5. Empty subfolders (standard 2-level course) -> unchanged
+    expect(
+      libraryService.formatLessonTitle([], '01 - Introducao')
+    ).toBe('01 - Introducao');
+  });
+
+  it('should properly group 3-level folder structure into subjects as modules and preserve lesson parts', async () => {
+    const sourcesRepo = new SourcesRepository();
+    const coursesRepo = new CoursesRepository();
+    const libraryService = LibraryService.getInstance();
+
+    // Create 3-level directory matching user's exact course:
+    // Combo PM AL - Soldado/
+    //   22. ▹ Teoria _ Direito Constitucional (Prof. Juliano Yamakaw)/
+    //     1. Aula 01 - Teoria dos Direitos Fundamentais/
+    //       1. Aula.mp4
+    //       2. Aula.mp4
+    //     7. Aula 07 - Direitos Fundamentais - Direito à Vida/
+    //       1. Aula.mp4
+    //       2. Aula.mp4
+    //       1. Aula 07 - Direito.08.25.pdf
+    //   23. ▹ Teoria _ Direito Administrativo/
+    //     1. Aula 01 - Introducao/
+    //       1. Aula.mp4
+    const pmalDir = path.join(tempDir, 'Combo PM AL - Soldado');
+    const constDir = path.join(pmalDir, '22. ▹ Teoria _ Direito Constitucional (Prof. Juliano Yamakaw)');
+    const aula01Dir = path.join(constDir, '1. Aula 01 - Teoria dos Direitos Fundamentais');
+    const aula07Dir = path.join(constDir, '7. Aula 07 - Direitos Fundamentais - Direito à Vida');
+
+    const adminDir = path.join(pmalDir, '23. ▹ Teoria _ Direito Administrativo');
+    const adminAula01Dir = path.join(adminDir, '1. Aula 01 - Introducao');
+
+    fs.mkdirSync(aula01Dir, { recursive: true });
+    fs.mkdirSync(aula07Dir, { recursive: true });
+    fs.mkdirSync(adminAula01Dir, { recursive: true });
+
+    fs.writeFileSync(path.join(aula01Dir, '1. Aula.mp4'), 'video part 1');
+    fs.writeFileSync(path.join(aula01Dir, '2. Aula.mp4'), 'video part 2');
+    fs.writeFileSync(path.join(aula07Dir, '1. Aula.mp4'), 'video part 1');
+    fs.writeFileSync(path.join(aula07Dir, '2. Aula.mp4'), 'video part 2');
+    fs.writeFileSync(path.join(aula07Dir, '1. Aula 07 - Direito.08.25.pdf'), 'pdf content');
+    fs.writeFileSync(path.join(aula07Dir, 'descricao.md'), '# Resumo da aula');
+
+    fs.writeFileSync(path.join(adminAula01Dir, '1. Aula.mp4'), 'admin video');
+
+    const sourceId = 'src_pmal_hierarchy_test';
+    sourcesRepo.create({
+      id: sourceId,
+      name: 'Combo PM AL',
+      source_type: 'local',
+      root_path: pmalDir,
+      scan_mode: 'single_course',
+      enabled: 1
+    });
+
+    const progress = await libraryService.scanSource(sourceId);
+    expect(progress.status).toBe('completed');
+    expect(progress.videosFound).toBe(5);
+
+    const courses = coursesRepo.list({ sourceId });
+    expect(courses.length).toBe(1);
+    expect(courses[0].title).toBe('Combo PM AL - Soldado');
+
+    const details = coursesRepo.getFullCourse(courses[0].id);
+    expect(details).toBeDefined();
+
+    // MUST only be 2 modules (the subjects), NOT 3 or 4 fragmented modules!
+    expect(details?.modules.length).toBe(2);
+    expect(details?.modules[0].title).toBe('22. ▹ Teoria _ Direito Constitucional (Prof. Juliano Yamakaw)');
+    expect(details?.modules[1].title).toBe('23. ▹ Teoria _ Direito Administrativo');
+
+    // In Direito Constitucional module: 4 video parts + 1 PDF lesson = 5 lessons
+    const constModule = details?.modules[0];
+    expect(constModule?.lessons?.length).toBe(5);
+
+    // Lessons must have formatted titles with part numbers
+    const lessonTitles = constModule?.lessons?.map(l => l.title) || [];
+    expect(lessonTitles).toContain('1. Aula 01 - Teoria dos Direitos Fundamentais (Parte 1)');
+    expect(lessonTitles).toContain('1. Aula 01 - Teoria dos Direitos Fundamentais (Parte 2)');
+    expect(lessonTitles).toContain('7. Aula 07 - Direitos Fundamentais - Direito à Vida (Parte 1)');
+    expect(lessonTitles).toContain('7. Aula 07 - Direitos Fundamentais - Direito à Vida (Parte 2)');
+
+    // In materials:
+    expect(details?.materials.some(m => m.title === '1. Aula 07 - Direito.08.25.pdf')).toBe(true);
+    expect(details?.materials.some(m => m.title === 'descricao.md')).toBe(true);
+  });
 });
+

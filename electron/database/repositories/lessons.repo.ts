@@ -40,11 +40,12 @@ export class LessonsRepository {
     if (existing) {
       this.db.run(`
         UPDATE lessons
-        SET title = ?, position = ?, duration_seconds = COALESCE(?, duration_seconds),
+        SET module_id = ?, title = ?, position = ?, duration_seconds = COALESCE(?, duration_seconds),
             local_path = COALESCE(?, local_path), remote_path = COALESCE(?, remote_path),
             file_size = COALESCE(?, file_size), updated_at = ?
         WHERE id = ?
       `, [
+        lesson.module_id,
         lesson.title,
         lesson.position,
         lesson.duration_seconds || null,

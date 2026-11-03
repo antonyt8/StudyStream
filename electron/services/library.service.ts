@@ -53,7 +53,7 @@ export class LibraryService {
   }
 
   /**
-   * Natural sort comparison for filenames and numbers
+   * Natural sort comparison for filenames, folders and numbers
    */
   private naturalCompare(a: string, b: string): number {
     return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
@@ -65,6 +65,69 @@ export class LibraryService {
   private makeStableId(prefix: string, ...parts: string[]): string {
     const hash = crypto.createHash('md5').update(parts.join('::')).digest('hex').substring(0, 16);
     return `${prefix}_${hash}`;
+  }
+
+  /**
+   * Formats a clean, descriptive lesson title when files are inside subfolders.
+   * Handles patterns like "1. Aula.mp4", "2. Aula.mp4", "Parte 1", "01", etc.
+   */
+  public formatLessonTitle(subfolders: string[], fileName: string): string {
+    const cleanFileName = fileName.trim();
+    if (!subfolders || subfolders.length === 0) {
+      return cleanFileName;
+    }
+
+    const folderTitle = subfolders.join(' - ').trim();
+
+    // 1. "1. Aula", "01 - Aula", "2_aula", "1. Video", "1. Bloco", "1. Parte", "1 - Parte"
+    const prefixNumMatch = cleanFileName.match(/^(\d+)[\s._-]+(?:aula|bloco|parte|video|part)$/i);
+    if (prefixNumMatch) {
+      const partNum = parseInt(prefixNumMatch[1], 10);
+      return `${folderTitle} (Parte ${partNum})`;
+    }
+
+    // 2. "Aula 1", "Aula 02", "Parte 1", "Bloco 03", "Video 2", "Part 1"
+    const suffixNumMatch = cleanFileName.match(/^(?:aula|bloco|parte|video|part)[\s._-]*(\d+)$/i);
+    if (suffixNumMatch) {
+      const partNum = parseInt(suffixNumMatch[1], 10);
+      return `${folderTitle} (Parte ${partNum})`;
+    }
+
+    // 3. Just a number: "1", "02", "3"
+    const justNumMatch = cleanFileName.match(/^0*(\d+)$/);
+    if (justNumMatch) {
+      const partNum = parseInt(justNumMatch[1], 10);
+      return `${folderTitle} (Parte ${partNum})`;
+    }
+
+    // 4. "Parte A", "Bloco B"
+    const letterMatch = cleanFileName.match(/^(?:parte|bloco|part)[\s._-]*([a-zA-Z])$/i);
+    if (letterMatch) {
+      return `${folderTitle} (Parte ${letterMatch[1].toUpperCase()})`;
+    }
+
+    // 5. Just "Aula", "Video", "Parte", "Bloco" (single video in folder)
+    if (/^(?:aula|video|parte|bloco|part)$/i.test(cleanFileName)) {
+      return folderTitle;
+    }
+
+    // If fileName already includes the folder title or vice versa
+    const lowerFolder = folderTitle.toLowerCase();
+    const lowerFile = cleanFileName.toLowerCase();
+    if (lowerFile.includes(lowerFolder)) {
+      return cleanFileName;
+    }
+    if (lowerFolder.includes(lowerFile)) {
+      return folderTitle;
+    }
+
+    // If fileName already has an aula prefix like "Aula 07" or "1. Aula 07"
+    if (/^(?:\d+[\s._-]+)?aula\s*\d+/i.test(cleanFileName)) {
+      return cleanFileName;
+    }
+
+    // Otherwise, combine them naturally
+    return `${folderTitle} - ${cleanFileName}`;
   }
 
   /**
@@ -114,6 +177,82 @@ export class LibraryService {
   }
 
   /**
+   * Persists course structure into the database and prunes obsolete modules/materials
+   */
+  private saveCourseData(
+    courseId: string,
+    sourceId: string,
+    courseTitle: string,
+    rootFolder: string,
+    courseData: {
+      modules: Array<{ id: string; title: string; position: number; relative_path: string; lessons: any[] }>;
+      materials: Array<{ id: string; course_id: string; module_id?: string; title: string; file_path: string; file_type: string; file_size: number }>;
+    }
+  ): void {
+    if (courseData.modules.length === 0 && courseData.materials.length === 0) return;
+
+    this.db.transaction(() => {
+      this.coursesRepo.upsert({
+        id: courseId,
+        source_id: sourceId,
+        title: courseTitle,
+        root_folder: rootFolder
+      });
+
+      const currentModuleIds: string[] = [];
+      const currentMaterialIds: string[] = [];
+
+      for (const mod of courseData.modules) {
+        currentModuleIds.push(mod.id);
+        this.modulesRepo.upsert({
+          id: mod.id,
+          course_id: courseId,
+          title: mod.title,
+          position: mod.position,
+          relative_path: mod.relative_path
+        });
+
+        for (const les of mod.lessons) {
+          this.lessonsRepo.upsert({
+            id: les.id,
+            module_id: mod.id,
+            course_id: courseId,
+            title: les.title,
+            original_path: les.original_path,
+            local_path: les.original_path,
+            position: les.position,
+            file_size: les.file_size,
+            media_type: les.media_type || 'video/mp4'
+          });
+        }
+      }
+
+      for (const mat of courseData.materials) {
+        currentMaterialIds.push(mat.id);
+        this.materialsRepo.upsert(mat);
+      }
+
+      // Prune obsolete modules that are no longer part of this course
+      if (currentModuleIds.length > 0) {
+        const placeholders = currentModuleIds.map(() => '?').join(',');
+        this.db.run(
+          `DELETE FROM modules WHERE course_id = ? AND id NOT IN (${placeholders})`,
+          [courseId, ...currentModuleIds]
+        );
+      }
+
+      // Prune obsolete materials
+      if (currentMaterialIds.length > 0) {
+        const matPlaceholders = currentMaterialIds.map(() => '?').join(',');
+        this.db.run(
+          `DELETE FROM materials WHERE course_id = ? AND id NOT IN (${matPlaceholders})`,
+          [courseId, ...currentMaterialIds]
+        );
+      }
+    });
+  }
+
+  /**
    * Local folder recursive scanner
    */
   private async scanLocalSource(
@@ -146,45 +285,7 @@ export class LibraryService {
       if (onProgress) onProgress(progress);
 
       const courseData = this.scanLocalCourseFolder(rootPath, courseId, scanState, progress, onProgress);
-
-      if (courseData.modules.length > 0 || courseData.materials.length > 0) {
-        this.db.transaction(() => {
-          this.coursesRepo.upsert({
-            id: courseId,
-            source_id: sourceId,
-            title: courseTitle,
-            root_folder: rootPath
-          });
-
-          for (const mod of courseData.modules) {
-            this.modulesRepo.upsert({
-              id: mod.id,
-              course_id: courseId,
-              title: mod.title,
-              position: mod.position,
-              relative_path: mod.relative_path
-            });
-
-            for (const les of mod.lessons) {
-              this.lessonsRepo.upsert({
-                id: les.id,
-                module_id: mod.id,
-                course_id: courseId,
-                title: les.title,
-                original_path: les.original_path,
-                local_path: les.original_path,
-                position: les.position,
-                file_size: les.file_size,
-                media_type: les.media_type || 'video/mp4'
-              });
-            }
-          }
-
-          for (const mat of courseData.materials) {
-            this.materialsRepo.upsert(mat);
-          }
-        });
-      }
+      this.saveCourseData(courseId, sourceId, courseTitle, rootPath, courseData);
       return;
     }
 
@@ -203,45 +304,7 @@ export class LibraryService {
 
         // Scan this course folder
         const courseData = this.scanLocalCourseFolder(fullCoursePath, courseId, scanState, progress, onProgress);
-
-        if (courseData.modules.length > 0 || courseData.materials.length > 0) {
-          this.db.transaction(() => {
-            this.coursesRepo.upsert({
-              id: courseId,
-              source_id: sourceId,
-              title: courseTitle,
-              root_folder: fullCoursePath
-            });
-
-            for (const mod of courseData.modules) {
-              this.modulesRepo.upsert({
-                id: mod.id,
-                course_id: courseId,
-                title: mod.title,
-                position: mod.position,
-                relative_path: mod.relative_path
-              });
-
-              for (const les of mod.lessons) {
-                this.lessonsRepo.upsert({
-                  id: les.id,
-                  module_id: mod.id,
-                  course_id: courseId,
-                  title: les.title,
-                  original_path: les.original_path,
-                  local_path: les.original_path,
-                  position: les.position,
-                  file_size: les.file_size,
-                  media_type: les.media_type || 'video/mp4'
-                });
-              }
-            }
-
-            for (const mat of courseData.materials) {
-              this.materialsRepo.upsert(mat);
-            }
-          });
-        }
+        this.saveCourseData(courseId, sourceId, courseTitle, fullCoursePath, courseData);
       }
     }
   }
@@ -259,21 +322,35 @@ export class LibraryService {
     modules: Array<{ id: string; title: string; position: number; relative_path: string; lessons: any[] }>;
     materials: Array<{ id: string; course_id: string; module_id?: string; title: string; file_path: string; file_type: string; file_size: number }>;
   } {
-    const modules: Array<{ id: string; title: string; position: number; relative_path: string; lessons: any[] }> = [];
-    const materials: Array<{ id: string; course_id: string; module_id?: string; title: string; file_path: string; file_type: string; file_size: number }> = [];
-
-    // Map of relative directory -> lessons and materials in that directory
-    const dirMap = new Map<string, {
-      lessons: Array<{ name: string; fullPath: string; size: number; media_type: string }>;
-      materials: Array<{ title: string; filePath: string; fileType: string; size: number }>;
+    const moduleMap = new Map<string, {
+      title: string;
+      relativePath: string;
+      lessons: Array<{
+        title: string;
+        rawName: string;
+        relDir: string;
+        fullPath: string;
+        size: number;
+        media_type: string;
+      }>;
+      materials: Array<{
+        title: string;
+        filePath: string;
+        fileType: string;
+        size: number;
+      }>;
     }>();
 
-    const getDirBucket = (relDir: string) => {
-      const normalized = relDir.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '') || '.';
-      if (!dirMap.has(normalized)) {
-        dirMap.set(normalized, { lessons: [], materials: [] });
+    const getModuleBucket = (moduleTitle: string, relativePath: string) => {
+      if (!moduleMap.has(moduleTitle)) {
+        moduleMap.set(moduleTitle, {
+          title: moduleTitle,
+          relativePath,
+          lessons: [],
+          materials: []
+        });
       }
-      return dirMap.get(normalized)!;
+      return moduleMap.get(moduleTitle)!;
     };
 
     // Recursive directory walker
@@ -298,38 +375,76 @@ export class LibraryService {
         } else if (entry.isFile()) {
           progress.filesExamined++;
           const ext = path.extname(entry.name).toLowerCase();
-          const bucket = getDirBucket(relDir);
+          const isVideo = VIDEO_EXTENSIONS.has(ext);
+          const isPdf = ext === '.pdf';
+          const isMaterial = !!MATERIAL_EXTENSIONS[ext];
 
-          if (VIDEO_EXTENSIONS.has(ext)) {
+          if (!isVideo && !isPdf && !isMaterial) continue;
+
+          // Determine module and subfolders
+          const normRelDir = relDir.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+          const dirSegments = normRelDir && normRelDir !== '.' ? normRelDir.split('/').filter(Boolean) : [];
+
+          let moduleTitle = 'Aulas Gerais';
+          let moduleRelPath = '.';
+          let subFolders: string[] = [];
+
+          if (dirSegments.length === 0) {
+            moduleTitle = 'Aulas Gerais';
+            moduleRelPath = '.';
+            subFolders = [];
+          } else if (dirSegments.length === 1) {
+            moduleTitle = dirSegments[0];
+            moduleRelPath = dirSegments[0];
+            subFolders = [];
+          } else {
+            // 2 or more segments: top-level folder is the Module/Matéria, inner folders are Aula topics
+            moduleTitle = dirSegments[0];
+            moduleRelPath = dirSegments[0];
+            subFolders = dirSegments.slice(1);
+          }
+
+          const bucket = getModuleBucket(moduleTitle, moduleRelPath);
+          const rawName = path.parse(entry.name).name;
+          const formattedTitle = this.formatLessonTitle(subFolders, rawName);
+
+          let stat: fs.Stats;
+          try {
+            stat = fs.statSync(fullPath);
+          } catch {
+            stat = { size: 0 } as fs.Stats;
+          }
+
+          if (isVideo) {
             progress.videosFound++;
-            const stat = fs.statSync(fullPath);
             bucket.lessons.push({
-              name: path.parse(entry.name).name,
+              title: formattedTitle,
+              rawName,
+              relDir: normRelDir,
               fullPath,
               size: stat.size,
               media_type: 'video/mp4'
             });
-          } else if (ext === '.pdf') {
-            const stat = fs.statSync(fullPath);
+          } else if (isPdf) {
             bucket.materials.push({
               title: entry.name,
               filePath: fullPath,
               fileType: 'pdf',
               size: stat.size
             });
-            // Also add as a lesson of this module!
             bucket.lessons.push({
-              name: path.parse(entry.name).name,
+              title: formattedTitle,
+              rawName,
+              relDir: normRelDir,
               fullPath,
               size: stat.size,
               media_type: 'application/pdf'
             });
-          } else if (MATERIAL_EXTENSIONS[ext]) {
-            const stat = fs.statSync(fullPath);
+          } else if (isMaterial) {
             bucket.materials.push({
               title: entry.name,
               filePath: fullPath,
-              fileType: MATERIAL_EXTENSIONS[ext],
+              fileType: MATERIAL_EXTENSIONS[ext] || 'other',
               size: stat.size
             });
           }
@@ -341,41 +456,51 @@ export class LibraryService {
 
     if (onProgress) onProgress(progress);
 
-    // Sort relative directories naturally (root '.' comes first)
-    const sortedDirs = Array.from(dirMap.keys()).sort((a, b) => {
-      if (a === '.') return -1;
-      if (b === '.') return 1;
-      return this.naturalCompare(a, b);
+    // Sort modules naturally by relativePath
+    const sortedBuckets = Array.from(moduleMap.values()).sort((a, b) => {
+      if (a.relativePath === '.') return -1;
+      if (b.relativePath === '.') return 1;
+      return this.naturalCompare(a.relativePath, b.relativePath);
     });
 
+    const modules: Array<{ id: string; title: string; position: number; relative_path: string; lessons: any[] }> = [];
+    const materials: Array<{ id: string; course_id: string; module_id?: string; title: string; file_path: string; file_type: string; file_size: number }> = [];
+
     let modulePos = 1;
-    for (const relDir of sortedDirs) {
-      const bucket = dirMap.get(relDir)!;
+    for (const bucket of sortedBuckets) {
       if (bucket.lessons.length === 0 && bucket.materials.length === 0) continue;
 
-      const modTitle = relDir === '.' ? 'Aulas Gerais' : relDir.replace(/\\/g, ' / ');
-      const modId = this.makeStableId('mod', courseId, relDir);
+      const modId = this.makeStableId('mod', courseId, bucket.title);
 
-      bucket.lessons.sort((a, b) => this.naturalCompare(a.name, b.name));
+      // Sort lessons naturally: by folder path first, then by filename
+      bucket.lessons.sort((a, b) => {
+        const dirDiff = this.naturalCompare(a.relDir, b.relDir);
+        if (dirDiff !== 0) return dirDiff;
+        return this.naturalCompare(a.rawName, b.rawName);
+      });
 
       modules.push({
         id: modId,
-        title: modTitle,
+        title: bucket.title,
         position: modulePos++,
-        relative_path: relDir,
-        lessons: bucket.lessons.map((v, idx) => ({
-          id: this.makeStableId('les', modId, v.name),
-          title: v.name,
-          original_path: v.fullPath,
-          position: idx + 1,
-          file_size: v.size,
-          media_type: v.media_type
-        }))
+        relative_path: bucket.relativePath,
+        lessons: bucket.lessons.map((v, idx) => {
+          const existing = this.lessonsRepo.getByPath(v.fullPath);
+          const lesId = existing ? existing.id : this.makeStableId('les', courseId, v.fullPath);
+          return {
+            id: lesId,
+            title: v.title,
+            original_path: v.fullPath,
+            position: idx + 1,
+            file_size: v.size,
+            media_type: v.media_type
+          };
+        })
       });
 
       for (const mat of bucket.materials) {
         materials.push({
-          id: this.makeStableId('mat', courseId, relDir, mat.title),
+          id: this.makeStableId('mat', courseId, mat.filePath),
           course_id: courseId,
           module_id: modId,
           title: mat.title,
@@ -406,8 +531,28 @@ export class LibraryService {
     const items = await this.rcloneService.listJson(rclonePath, remoteRoot, { recursive: true });
 
     // Group items into Course -> Module -> Lessons and Materials
-    const courseMap = new Map<string, Map<string, Array<{ title: string; remotePath: string; size: number; mediaType: string }>>>();
-    const remoteMaterials: Array<{ id: string; course_id: string; title: string; file_path: string; file_type: string; file_size: number }> = [];
+    const courseMap = new Map<string, {
+      rootFolder: string;
+      modules: Map<string, {
+        title: string;
+        relativePath: string;
+        lessons: Array<{
+          title: string;
+          rawName: string;
+          relDir: string;
+          remotePath: string;
+          size: number;
+          mediaType: string;
+        }>;
+      }>;
+      materials: Array<{
+        title: string;
+        filePath: string;
+        fileType: string;
+        size: number;
+        moduleTitle: string;
+      }>;
+    }>();
 
     // Check if remoteRoot represents a single course or collection
     const source = this.sourcesRepo.getById(sourceId);
@@ -434,49 +579,77 @@ export class LibraryService {
       if (!isVideo && !isMaterial && !isPdf) continue;
 
       // Split normalized path
-      const parts = item.Path.split(/[\/\\]/);
+      const parts = item.Path.split(/[\/\\]/).filter(Boolean);
       let courseName = '';
-      let moduleName = 'Aulas Gerais';
-      let itemTitle = path.parse(item.Name).name;
+      let courseRelParts: string[] = [];
+      let courseRootFolder = '';
 
       if (isSingleCourse) {
         courseName = folderBaseName || source?.name || 'Curso';
-        if (parts.length === 1) {
-          moduleName = 'Aulas Gerais';
-        } else {
-          // All parent directories become the module title, preserving origin structure!
-          moduleName = parts.slice(0, -1).join(' / ');
-        }
+        courseRelParts = parts;
+        courseRootFolder = remoteRoot;
       } else {
-        if (parts.length === 1) {
+        if (parts.length <= 1) {
           courseName = folderBaseName || source?.name || 'Aulas Principais';
-          moduleName = 'Módulo Único';
-        } else if (parts.length === 2) {
-          courseName = parts[0];
-          moduleName = 'Aulas Gerais';
+          courseRelParts = parts;
+          courseRootFolder = remoteRoot;
         } else {
           courseName = parts[0];
-          moduleName = parts.slice(1, -1).join(' / ');
-          itemTitle = path.parse(parts[parts.length - 1]).name;
+          courseRelParts = parts.slice(1);
+          courseRootFolder = `${remoteRoot}/${courseName}`;
         }
       }
 
+      const dirSegments = courseRelParts.slice(0, -1);
+      let moduleTitle = 'Aulas Gerais';
+      let moduleRelPath = '.';
+      let subFolders: string[] = [];
+
+      if (dirSegments.length === 0) {
+        moduleTitle = 'Aulas Gerais';
+        moduleRelPath = '.';
+        subFolders = [];
+      } else if (dirSegments.length === 1) {
+        moduleTitle = dirSegments[0];
+        moduleRelPath = dirSegments[0];
+        subFolders = [];
+      } else {
+        // 2 or more segments: top-level is the Module/Matéria, inner folders are Aula topics
+        moduleTitle = dirSegments[0];
+        moduleRelPath = dirSegments[0];
+        subFolders = dirSegments.slice(1);
+      }
+
+      const rawName = path.parse(item.Name).name;
+      const formattedTitle = this.formatLessonTitle(subFolders, rawName);
+      const normRelDir = dirSegments.join('/');
       const fullRemotePath = `${remoteRoot}/${item.Path}`.replace(/\/+/g, '/');
-      const courseId = this.makeStableId('course', sourceId, courseName);
+
+      if (!courseMap.has(courseName)) {
+        courseMap.set(courseName, {
+          rootFolder: courseRootFolder,
+          modules: new Map(),
+          materials: []
+        });
+      }
+      const courseEntry = courseMap.get(courseName)!;
+
+      if (!courseEntry.modules.has(moduleTitle)) {
+        courseEntry.modules.set(moduleTitle, {
+          title: moduleTitle,
+          relativePath: moduleRelPath,
+          lessons: []
+        });
+      }
+      const modBucket = courseEntry.modules.get(moduleTitle)!;
 
       if (isVideo || isPdf) {
         if (isVideo) progress.videosFound++;
 
-        if (!courseMap.has(courseName)) {
-          courseMap.set(courseName, new Map());
-        }
-        const modulesMap = courseMap.get(courseName)!;
-        if (!modulesMap.has(moduleName)) {
-          modulesMap.set(moduleName, []);
-        }
-
-        modulesMap.get(moduleName)!.push({
-          title: itemTitle,
+        modBucket.lessons.push({
+          title: formattedTitle,
+          rawName,
+          relDir: normRelDir,
           remotePath: fullRemotePath,
           size: item.Size || 0,
           mediaType: isPdf ? 'application/pdf' : 'video/mp4'
@@ -484,13 +657,12 @@ export class LibraryService {
       }
 
       if (isMaterial || isPdf) {
-        remoteMaterials.push({
-          id: this.makeStableId('mat', courseId, item.Name),
-          course_id: courseId,
+        courseEntry.materials.push({
           title: item.Name,
-          file_path: fullRemotePath,
-          file_type: isPdf ? 'pdf' : (MATERIAL_EXTENSIONS[ext] || 'other'),
-          file_size: item.Size || 0
+          filePath: fullRemotePath,
+          fileType: isPdf ? 'pdf' : (MATERIAL_EXTENSIONS[ext] || 'other'),
+          size: item.Size || 0,
+          moduleTitle
         });
       }
     }
@@ -499,34 +671,53 @@ export class LibraryService {
 
     // Save to database
     this.db.transaction(() => {
-      for (const [courseTitle, modulesMap] of courseMap.entries()) {
+      for (const [courseTitle, courseEntry] of courseMap.entries()) {
         const courseId = this.makeStableId('course', sourceId, courseTitle);
 
         this.coursesRepo.upsert({
           id: courseId,
           source_id: sourceId,
           title: courseTitle,
-          root_folder: isSingleCourse ? remoteRoot : `${remoteRoot}/${courseTitle}`
+          root_folder: courseEntry.rootFolder
+        });
+
+        const currentModuleIds: string[] = [];
+        const currentMaterialIds: string[] = [];
+
+        // Sort modules naturally
+        const sortedModules = Array.from(courseEntry.modules.values()).sort((a, b) => {
+          if (a.relativePath === '.') return -1;
+          if (b.relativePath === '.') return 1;
+          return this.naturalCompare(a.relativePath, b.relativePath);
         });
 
         let modPos = 1;
-        for (const [moduleTitle, lessons] of modulesMap.entries()) {
-          const modId = this.makeStableId('mod', courseId, moduleTitle);
+        for (const mod of sortedModules) {
+          if (mod.lessons.length === 0) continue;
+
+          const modId = this.makeStableId('mod', courseId, mod.title);
+          currentModuleIds.push(modId);
 
           this.modulesRepo.upsert({
             id: modId,
             course_id: courseId,
-            title: moduleTitle,
+            title: mod.title,
             position: modPos++,
-            relative_path: moduleTitle
+            relative_path: mod.relativePath
           });
 
-          // Sort lessons naturally
-          lessons.sort((a, b) => this.naturalCompare(a.title, b.title));
+          // Sort lessons naturally: by folder first, then by filename
+          mod.lessons.sort((a, b) => {
+            const dirDiff = this.naturalCompare(a.relDir, b.relDir);
+            if (dirDiff !== 0) return dirDiff;
+            return this.naturalCompare(a.rawName, b.rawName);
+          });
 
           let lesPos = 1;
-          for (const les of lessons) {
-            const lesId = this.makeStableId('les', modId, les.title);
+          for (const les of mod.lessons) {
+            const existing = this.lessonsRepo.getByPath(les.remotePath);
+            const lesId = existing ? existing.id : this.makeStableId('les', courseId, les.remotePath);
+
             this.lessonsRepo.upsert({
               id: lesId,
               module_id: modId,
@@ -540,10 +731,40 @@ export class LibraryService {
             });
           }
         }
-      }
 
-      for (const mat of remoteMaterials) {
-        this.materialsRepo.upsert(mat);
+        for (const mat of courseEntry.materials) {
+          const matId = this.makeStableId('mat', courseId, mat.filePath);
+          currentMaterialIds.push(matId);
+          const modId = mat.moduleTitle ? this.makeStableId('mod', courseId, mat.moduleTitle) : undefined;
+
+          this.materialsRepo.upsert({
+            id: matId,
+            course_id: courseId,
+            module_id: modId,
+            title: mat.title,
+            file_path: mat.filePath,
+            file_type: mat.fileType,
+            file_size: mat.size
+          });
+        }
+
+        // Prune obsolete modules
+        if (currentModuleIds.length > 0) {
+          const placeholders = currentModuleIds.map(() => '?').join(',');
+          this.db.run(
+            `DELETE FROM modules WHERE course_id = ? AND id NOT IN (${placeholders})`,
+            [courseId, ...currentModuleIds]
+          );
+        }
+
+        // Prune obsolete materials
+        if (currentMaterialIds.length > 0) {
+          const matPlaceholders = currentMaterialIds.map(() => '?').join(',');
+          this.db.run(
+            `DELETE FROM materials WHERE course_id = ? AND id NOT IN (${matPlaceholders})`,
+            [courseId, ...currentMaterialIds]
+          );
+        }
       }
     });
   }
