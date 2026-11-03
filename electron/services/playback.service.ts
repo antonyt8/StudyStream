@@ -1,7 +1,10 @@
 import http from 'node:http';
+import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { spawn } from 'node:child_process';
+import { shell } from 'electron';
 import { PathSecurity } from '../security/path-validation';
 import { SourcesRepository } from '../database/repositories/sources.repo';
 import { RcloneService } from './rclone.service';
@@ -282,6 +285,110 @@ export class PlaybackService {
       return { url: '', error: 'Arquivo não encontrado nem localmente nem remotamente' };
     } catch (err: any) {
       return { url: '', error: err.message };
+    }
+  }
+
+  /**
+   * Silently prefetches initial bytes of a video URL into local cache in the background
+   */
+  public prefetchChunk(url: string, bytesToFetch: number = 16 * 1024 * 1024): void {
+    try {
+      if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) return;
+
+      const parsed = new URL(url);
+      const isHttps = parsed.protocol === 'https:';
+      const client = isHttps ? https : http;
+
+      const options = {
+        hostname: parsed.hostname,
+        port: parsed.port || (isHttps ? 443 : 80),
+        path: parsed.pathname + parsed.search,
+        method: 'GET',
+        headers: {
+          Range: `bytes=0-${bytesToFetch - 1}`,
+          'User-Agent': 'StudyStream-Prefetch/1.0'
+        }
+      };
+
+      const req = client.request(options, (res) => {
+        // Drain incoming stream into void to populate Rclone VFS cache
+        res.on('data', () => {});
+        res.on('end', () => {});
+      });
+
+      req.on('error', () => {});
+      req.setTimeout(25000, () => req.destroy());
+      req.end();
+    } catch {
+      // Ignore background errors
+    }
+  }
+
+  /**
+   * Opens the given stream URL or local video in VLC, MPV, PotPlayer or system default video player
+   */
+  public async openInExternalPlayer(
+    url: string,
+    localPath?: string,
+    title?: string
+  ): Promise<{ success: boolean; player?: string; error?: string }> {
+    try {
+      const target = localPath && fs.existsSync(localPath) ? localPath : url;
+      if (!target) {
+        return { success: false, error: 'Caminho ou URL do vídeo indisponível' };
+      }
+
+      // Check common VLC locations on Windows
+      const vlcPaths = [
+        'C:\\Program Files\\VideoLAN\\VLC\\vlc.exe',
+        'C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe'
+      ];
+      for (const vPath of vlcPaths) {
+        if (fs.existsSync(vPath)) {
+          const args = [target, '--play-and-exit'];
+          if (title) args.push('--meta-title', title);
+          spawn(vPath, args, { detached: true, stdio: 'ignore' }).unref();
+          return { success: true, player: 'VLC Media Player' };
+        }
+      }
+
+      // Check MPV location on Windows
+      const mpvPaths = [
+        'C:\\Program Files\\mpv\\mpv.exe',
+        'C:\\Program Files (x86)\\mpv\\mpv.exe'
+      ];
+      for (const mPath of mpvPaths) {
+        if (fs.existsSync(mPath)) {
+          const args = [target];
+          if (title) args.push(`--title=${title}`);
+          spawn(mPath, args, { detached: true, stdio: 'ignore' }).unref();
+          return { success: true, player: 'MPV Player' };
+        }
+      }
+
+      // Check PotPlayer on Windows
+      const potPaths = [
+        'C:\\Program Files\\DAUM\\PotPlayer\\PotPlayer64.exe',
+        'C:\\Program Files (x86)\\DAUM\\PotPlayer\\PotPlayer.exe'
+      ];
+      for (const pPath of potPaths) {
+        if (fs.existsSync(pPath)) {
+          spawn(pPath, [target], { detached: true, stdio: 'ignore' }).unref();
+          return { success: true, player: 'PotPlayer' };
+        }
+      }
+
+      // Fallback: If local file, open with Windows default registered app
+      if (localPath && fs.existsSync(localPath)) {
+        await shell.openPath(localPath);
+        return { success: true, player: 'Reprodutor Padrão do Windows' };
+      }
+
+      // Fallback for remote URL: open via default system handler
+      await shell.openExternal(url);
+      return { success: true, player: 'Navegador / Reprodutor do Sistema' };
+    } catch (err: any) {
+      return { success: false, error: err.message };
     }
   }
 

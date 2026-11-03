@@ -74,15 +74,18 @@ export const Player: React.FC<PlayerProps> = ({
   const [newBookmarkTitle, setNewBookmarkTitle] = useState<string>('');
   const [snapshotPreview, setSnapshotPreview] = useState<string | null>(null);
   const [zoomSnapshot, setZoomSnapshot] = useState<string | null>(null);
+  const [isOpeningExternal, setIsOpeningExternal] = useState(false);
 
   // Study session tracking
   const sessionStartRef = useRef<number>(Date.now());
   const activeWatchSecondsRef = useRef<number>(0);
   const lastTickTimeRef = useRef<number>(Date.now());
+  const hasPrefetchedNextRef = useRef<boolean>(false);
 
   // Load course details, media URL, notes, and bookmarks
   useEffect(() => {
     let isCancelled = false;
+    hasPrefetchedNextRef.current = false;
 
     async function init() {
       setIsLoadingMedia(true);
@@ -399,6 +402,27 @@ export const Player: React.FC<PlayerProps> = ({
     }
   };
 
+  // Open in external player (VLC, MPV or system default)
+  const handleOpenExternal = async () => {
+    if (videoRef.current) {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    }
+    if (window.api) {
+      setIsOpeningExternal(true);
+      try {
+        const res = await window.api.openInExternalPlayer(lessonId);
+        if (!res.success) {
+          alert(`Não foi possível abrir no player externo: ${res.error || 'Erro desconhecido'}`);
+        }
+      } catch (err: any) {
+        alert(`Erro ao abrir player externo: ${err.message}`);
+      } finally {
+        setIsOpeningExternal(false);
+      }
+    }
+  };
+
   // Add Note
   const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -486,8 +510,23 @@ export const Player: React.FC<PlayerProps> = ({
           </div>
         </div>
 
-        {/* Speed & Tab Buttons */}
+        {/* Speed & External Player Buttons */}
         <div className="flex items-center gap-2">
+          {/* External Player (VLC / MPV / Default) Button */}
+          <button
+            onClick={handleOpenExternal}
+            disabled={isOpeningExternal}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-semibold text-slate-200 hover:text-white transition-colors border border-white/10 disabled:opacity-50"
+            title="Abrir este vídeo no VLC, MPV ou reprodutor padrão do Windows"
+          >
+            {isOpeningExternal ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-accent-cyan" />
+            ) : (
+              <Tv className="w-3.5 h-3.5 text-accent-cyan" />
+            )}
+            <span className="hidden sm:inline">Player Externo (VLC)</span>
+          </button>
+
           {/* Speed Selector */}
           <div className="flex items-center bg-white/10 rounded-lg p-0.5 border border-white/10">
             {[1, 1.25, 1.5, 2].map((sp) => (
@@ -553,8 +592,18 @@ export const Player: React.FC<PlayerProps> = ({
               onProgress={updateBufferProgress}
               onTimeUpdate={() => {
                 if (videoRef.current) {
-                  setCurrentTime(videoRef.current.currentTime);
+                  const cur = videoRef.current.currentTime;
+                  const dur = videoRef.current.duration;
+                  setCurrentTime(cur);
                   updateBufferProgress();
+
+                  // Silently prefetch the next lesson's initial 16MB into local cache!
+                  if (nextLesson && !hasPrefetchedNextRef.current && dur > 0) {
+                    if (cur / dur > 0.4 || cur > 40) {
+                      hasPrefetchedNextRef.current = true;
+                      window.api?.prefetchLesson?.(nextLesson.id).catch(() => {});
+                    }
+                  }
                 }
               }}
               onLoadedMetadata={() => {

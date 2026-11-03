@@ -73,4 +73,58 @@ export function registerPlaybackIpc(): void {
   ipcMain.handle('playback:get-lesson-progress', async (_, lessonId: string) => {
     return progressRepo.getByLesson(lessonId);
   });
+
+  ipcMain.handle('playback:prefetch', async (_, lessonId: string) => {
+    try {
+      const lesson = lessonsRepo.getById(lessonId);
+      if (!lesson) return { success: false, error: 'Aula não encontrada' };
+      const course = coursesRepo.getById(lesson.course_id);
+      if (!course) return { success: false, error: 'Curso não encontrado' };
+      const source = sourcesRepo.getById(course.source_id);
+      if (!source) return { success: false, error: 'Origem não encontrada' };
+
+      const mediaRes = await playbackService.getPlaybackUrl({
+        sourceType: source.source_type,
+        localPath: lesson.local_path,
+        remotePath: lesson.remote_path,
+        sourceRoot: source.root_path,
+        remoteName: source.remote_name
+      });
+
+      if (mediaRes.url && mediaRes.url.startsWith('http')) {
+        playbackService.prefetchChunk(mediaRes.url, 16 * 1024 * 1024);
+        return { success: true };
+      }
+      return { success: false };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('playback:open-external', async (_, lessonId: string) => {
+    try {
+      const lesson = lessonsRepo.getById(lessonId);
+      if (!lesson) return { success: false, error: 'Aula não encontrada' };
+      const course = coursesRepo.getById(lesson.course_id);
+      if (!course) return { success: false, error: 'Curso não encontrado' };
+      const source = sourcesRepo.getById(course.source_id);
+      if (!source) return { success: false, error: 'Origem não encontrada' };
+
+      const mediaRes = await playbackService.getPlaybackUrl({
+        sourceType: source.source_type,
+        localPath: lesson.local_path,
+        remotePath: lesson.remote_path,
+        sourceRoot: source.root_path,
+        remoteName: source.remote_name
+      });
+
+      if (!mediaRes.url && !lesson.local_path) {
+        return { success: false, error: 'URL ou arquivo de mídia indisponível' };
+      }
+
+      return playbackService.openInExternalPlayer(mediaRes.url, lesson.local_path, lesson.title);
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
 }

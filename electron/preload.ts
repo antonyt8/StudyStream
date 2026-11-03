@@ -46,6 +46,8 @@ const api = {
     elapsedSeconds: number;
   }) => ipcRenderer.invoke('playback:record-session', data),
   getLessonProgress: (lessonId: string) => ipcRenderer.invoke('playback:get-lesson-progress', lessonId),
+  prefetchLesson: (lessonId: string) => ipcRenderer.invoke('playback:prefetch', lessonId),
+  openInExternalPlayer: (lessonId: string) => ipcRenderer.invoke('playback:open-external', lessonId),
 
   // Notes & Bookmarks
   listNotes: (filter?: { courseId?: string; lessonId?: string; search?: string }) =>
