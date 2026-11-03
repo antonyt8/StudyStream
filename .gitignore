@@ -70,8 +70,6 @@ lib-cov/
 Thumbs.db
 desktop.ini
 
-# Requisitos / Prompt notes
-requisito.md
 
 # Media & Downloaded course folders
 *.mp4
