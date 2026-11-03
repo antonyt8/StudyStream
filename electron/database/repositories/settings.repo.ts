@@ -26,7 +26,7 @@ export class SettingsRepository {
       rcloneVfsCacheMode: (map['rcloneVfsCacheMode'] as any) || 'full',
       rcloneVfsCacheMaxSize: map['rcloneVfsCacheMaxSize'] || '15G',
       rcloneVfsCacheMaxAge: map['rcloneVfsCacheMaxAge'] || '48h',
-      rcloneVfsReadChunkSize: map['rcloneVfsReadChunkSize'] || '32M',
+      rcloneVfsReadChunkSize: map['rcloneVfsReadChunkSize'] || '8M',
       rcloneDirCacheTime: map['rcloneDirCacheTime'] || '15m',
       rcloneBandwidthLimit: map['rcloneBandwidthLimit'] || 'off',
       rcloneBufferChunkStreams: parseInt(map['rcloneBufferChunkStreams'] || '4', 10) || 4

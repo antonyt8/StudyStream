@@ -313,11 +313,14 @@ export class RcloneService {
       '--addr', `127.0.0.1:${port}`,
       '--read-only',
       '--vfs-cache-mode', cacheMode,
-      '--vfs-read-ahead', '128M',
-      '--vfs-read-chunk-size', options.vfsReadChunkSize || '32M',
-      '--vfs-read-chunk-size-limit', '256M',
-      '--buffer-size', '64M',
-      '--drive-chunk-size', '64M',
+      '--vfs-read-ahead', '64M',
+      '--vfs-read-chunk-size', options.vfsReadChunkSize || '8M',
+      '--vfs-read-chunk-size-limit', '128M',
+      '--vfs-read-chunk-streams', '4',
+      '--buffer-size', '32M',
+      '--drive-chunk-size', '32M',
+      '--vfs-read-wait', '10ms',
+      '--vfs-handle-caching', '30m',
       '--vfs-fast-fingerprint',
       '--no-checksum',
       '--no-modtime',
@@ -345,34 +348,62 @@ export class RcloneService {
         this.currentServerUrl = `http://127.0.0.1:${port}`;
 
         let started = false;
+        let pollTimer: NodeJS.Timeout | null = null;
+
+        const cleanupAndResolve = () => {
+          if (!started) {
+            started = true;
+            if (pollTimer) clearInterval(pollTimer);
+            resolve({ url: this.currentServerUrl!, port: this.activePort });
+          }
+        };
+
+        // Actively probe loopback port to detect when rclone starts accepting connections
+        const checkPortReady = () => {
+          if (started || !this.serverProcess) {
+            if (pollTimer) clearInterval(pollTimer);
+            return;
+          }
+          const sock = net.createConnection({ port, host: '127.0.0.1' });
+          sock.once('connect', () => {
+            sock.destroy();
+            cleanupAndResolve();
+          });
+          sock.once('error', () => {
+            sock.destroy();
+          });
+        };
+
+        pollTimer = setInterval(checkPortReady, 35);
+        setTimeout(checkPortReady, 10);
 
         child.stderr.on('data', (data) => {
           const msg = data.toString();
           // rclone logs server startup info or notices to stderr
           if (!started && (msg.includes('Serving') || msg.includes('server') || msg.includes('127.0.0.1'))) {
-            started = true;
-            resolve({ url: this.currentServerUrl!, port: this.activePort });
+            cleanupAndResolve();
           }
         });
 
         child.on('error', (err) => {
+          if (pollTimer) clearInterval(pollTimer);
           this.serverProcess = null;
           if (!started) reject(err);
         });
 
         child.on('close', () => {
+          if (pollTimer) clearInterval(pollTimer);
           this.serverProcess = null;
           this.currentServerUrl = null;
           this.currentServerRemote = null;
         });
 
-        // Resolve after 1000ms if no error occurred
+        // Maximum fallback timeout
         setTimeout(() => {
           if (!started && this.serverProcess) {
-            started = true;
-            resolve({ url: this.currentServerUrl!, port: this.activePort });
+            cleanupAndResolve();
           }
-        }, 1200);
+        }, 1500);
       } catch (err) {
         reject(err);
       }

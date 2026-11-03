@@ -94,33 +94,26 @@ export const Player: React.FC<PlayerProps> = ({
       try {
         if (!window.api) return;
 
-        // 1. Fetch course structure
-        const details = await window.api.getCourseDetails(courseId);
-        if (!isCancelled) setCourseData(details);
+        // Start all async requests immediately in parallel!
+        const playbackPromise = window.api.getPlaybackUrl(lessonId);
+        const progressPromise = window.api.getLessonProgress(lessonId);
+        const coursePromise = window.api.getCourseDetails(courseId);
+        const notesPromise = window.api.listNotes({ courseId, lessonId });
+        const bookmarksPromise = window.api.listBookmarks(lessonId);
 
-        // 2. Fetch media URL and subtitles
-        const mediaRes = await window.api.getPlaybackUrl(lessonId);
+        // 1. Prioritize video playback: resolve playback URL and progress first
+        const [mediaRes, prog] = await Promise.all([playbackPromise, progressPromise]);
         if (isCancelled) return;
 
         if (mediaRes.error || !mediaRes.url) {
           setLoadError(mediaRes.error || 'Não foi possível carregar o vídeo');
+          setIsLoadingMedia(false);
         } else {
           setVideoUrl(mediaRes.url);
           if (mediaRes.subtitles && mediaRes.subtitles.length > 0) {
             setSubtitles(mediaRes.subtitles);
           }
         }
-
-        // 3. Load notes & bookmarks
-        const [nList, bList, prog] = await Promise.all([
-          window.api.listNotes({ courseId, lessonId }),
-          window.api.listBookmarks(lessonId),
-          window.api.getLessonProgress(lessonId)
-        ]);
-
-        if (isCancelled) return;
-        setNotes(nList);
-        setBookmarks(bList);
 
         // Saved progress or initialTime resume
         if (initialTime !== undefined && initialTime >= 0) {
@@ -134,6 +127,13 @@ export const Player: React.FC<PlayerProps> = ({
             videoRef.current.currentTime = prog.position_seconds;
           }
         }
+
+        // 2. Hydrate course data, notes and bookmarks in the background without blocking video
+        const [details, nList, bList] = await Promise.all([coursePromise, notesPromise, bookmarksPromise]);
+        if (isCancelled) return;
+        setCourseData(details);
+        setNotes(nList);
+        setBookmarks(bList);
       } catch (err: any) {
         if (!isCancelled) setLoadError(err.message);
       } finally {
@@ -534,12 +534,21 @@ export const Player: React.FC<PlayerProps> = ({
             <video
               ref={videoRef}
               src={videoUrl}
+              autoPlay
               preload="auto"
               playsInline
               className="w-full h-full object-contain cursor-pointer"
               onClick={togglePlay}
               onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}
+              onWaiting={() => setIsLoadingMedia(true)}
+              onPlaying={() => setIsLoadingMedia(false)}
+              onCanPlay={() => {
+                setIsLoadingMedia(false);
+                if (videoRef.current && isPlaying) {
+                  videoRef.current.play().catch(() => {});
+                }
+              }}
               onLoadedData={handleAutoCover}
               onProgress={updateBufferProgress}
               onTimeUpdate={() => {
@@ -556,6 +565,7 @@ export const Player: React.FC<PlayerProps> = ({
                   if (seekTo > 0) {
                     videoRef.current.currentTime = seekTo;
                   }
+                  videoRef.current.play().catch(() => {});
                   updateBufferProgress();
                 }
               }}
