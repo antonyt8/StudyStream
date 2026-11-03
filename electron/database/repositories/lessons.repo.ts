@@ -22,6 +22,15 @@ export class LessonsRepository {
     `, [originalPath]);
   }
 
+  public getByCourseAndPath(courseId: string, originalPath: string): Lesson | null {
+    return this.db.get<Lesson>(`
+      SELECT id, module_id, course_id, title, original_path, local_path, remote_path,
+             duration_seconds, position, media_type, file_size, is_available, created_at, updated_at
+      FROM lessons
+      WHERE course_id = ? AND original_path = ?
+    `, [courseId, originalPath]);
+  }
+
   public upsert(lesson: {
     id: string;
     module_id: string;
@@ -40,11 +49,12 @@ export class LessonsRepository {
     if (existing) {
       this.db.run(`
         UPDATE lessons
-        SET module_id = ?, title = ?, position = ?, duration_seconds = COALESCE(?, duration_seconds),
+        SET course_id = ?, module_id = ?, title = ?, position = ?, duration_seconds = COALESCE(?, duration_seconds),
             local_path = COALESCE(?, local_path), remote_path = COALESCE(?, remote_path),
             file_size = COALESCE(?, file_size), updated_at = ?
         WHERE id = ?
       `, [
+        lesson.course_id,
         lesson.module_id,
         lesson.title,
         lesson.position,

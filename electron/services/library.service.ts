@@ -232,24 +232,25 @@ export class LibraryService {
         this.materialsRepo.upsert(mat);
       }
 
-      // Prune obsolete modules that are no longer part of this course
-      if (currentModuleIds.length > 0) {
-        const placeholders = currentModuleIds.map(() => '?').join(',');
-        this.db.run(
-          `DELETE FROM modules WHERE course_id = ? AND id NOT IN (${placeholders})`,
-          [courseId, ...currentModuleIds]
-        );
-      }
-
-      // Prune obsolete materials
-      if (currentMaterialIds.length > 0) {
-        const matPlaceholders = currentMaterialIds.map(() => '?').join(',');
-        this.db.run(
-          `DELETE FROM materials WHERE course_id = ? AND id NOT IN (${matPlaceholders})`,
-          [courseId, ...currentMaterialIds]
-        );
-      }
+      this.pruneObsoleteRecords('modules', courseId, currentModuleIds);
+      this.pruneObsoleteRecords('materials', courseId, currentMaterialIds);
     });
+  }
+
+  /**
+   * Safely prunes IDs not in active list in chunks without hitting SQLite variable limits
+   */
+  private pruneObsoleteRecords(table: string, courseId: string, activeIds: string[]): void {
+    const existing = this.db.all<{ id: string }>(`SELECT id FROM ${table} WHERE course_id = ?`, [courseId]);
+    const activeSet = new Set(activeIds);
+    const toDelete = existing.filter(r => !activeSet.has(r.id)).map(r => r.id);
+
+    const CHUNK_SIZE = 400;
+    for (let i = 0; i < toDelete.length; i += CHUNK_SIZE) {
+      const chunk = toDelete.slice(i, i + CHUNK_SIZE);
+      const placeholders = chunk.map(() => '?').join(',');
+      this.db.run(`DELETE FROM ${table} WHERE id IN (${placeholders})`, chunk);
+    }
   }
 
   /**
@@ -279,7 +280,7 @@ export class LibraryService {
       // Index rootPath itself as a single course
       const folderName = path.basename(rootPath);
       const courseTitle = folderName || source?.name || 'Curso';
-      const courseId = this.makeStableId('course', sourceId, courseTitle);
+      const courseId = this.makeStableId('course', rootPath);
 
       progress.currentFolder = courseTitle;
       if (onProgress) onProgress(progress);
@@ -297,7 +298,7 @@ export class LibraryService {
 
       if (entry.isDirectory()) {
         const courseTitle = entry.name;
-        const courseId = this.makeStableId('course', sourceId, courseTitle);
+        const courseId = this.makeStableId('course', fullCoursePath);
 
         progress.currentFolder = courseTitle;
         if (onProgress) onProgress(progress);
@@ -485,7 +486,7 @@ export class LibraryService {
         position: modulePos++,
         relative_path: bucket.relativePath,
         lessons: bucket.lessons.map((v, idx) => {
-          const existing = this.lessonsRepo.getByPath(v.fullPath);
+          const existing = this.lessonsRepo.getByCourseAndPath(courseId, v.fullPath);
           const lesId = existing ? existing.id : this.makeStableId('les', courseId, v.fullPath);
           return {
             id: lesId,
@@ -672,7 +673,7 @@ export class LibraryService {
     // Save to database
     this.db.transaction(() => {
       for (const [courseTitle, courseEntry] of courseMap.entries()) {
-        const courseId = this.makeStableId('course', sourceId, courseTitle);
+        const courseId = this.makeStableId('course', courseEntry.rootFolder);
 
         this.coursesRepo.upsert({
           id: courseId,
@@ -715,7 +716,7 @@ export class LibraryService {
 
           let lesPos = 1;
           for (const les of mod.lessons) {
-            const existing = this.lessonsRepo.getByPath(les.remotePath);
+            const existing = this.lessonsRepo.getByCourseAndPath(courseId, les.remotePath);
             const lesId = existing ? existing.id : this.makeStableId('les', courseId, les.remotePath);
 
             this.lessonsRepo.upsert({
@@ -748,23 +749,8 @@ export class LibraryService {
           });
         }
 
-        // Prune obsolete modules
-        if (currentModuleIds.length > 0) {
-          const placeholders = currentModuleIds.map(() => '?').join(',');
-          this.db.run(
-            `DELETE FROM modules WHERE course_id = ? AND id NOT IN (${placeholders})`,
-            [courseId, ...currentModuleIds]
-          );
-        }
-
-        // Prune obsolete materials
-        if (currentMaterialIds.length > 0) {
-          const matPlaceholders = currentMaterialIds.map(() => '?').join(',');
-          this.db.run(
-            `DELETE FROM materials WHERE course_id = ? AND id NOT IN (${matPlaceholders})`,
-            [courseId, ...currentMaterialIds]
-          );
-        }
+        this.pruneObsoleteRecords('modules', courseId, currentModuleIds);
+        this.pruneObsoleteRecords('materials', courseId, currentMaterialIds);
       }
     });
   }

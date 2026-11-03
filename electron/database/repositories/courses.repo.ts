@@ -180,10 +180,11 @@ export class CoursesRepository {
     if (existing) {
       this.db.run(`
         UPDATE courses
-        SET title = ?, description = COALESCE(?, description), instructor = COALESCE(?, instructor),
-            category_id = COALESCE(?, category_id), cover_path = COALESCE(?, cover_path), updated_at = ?
+        SET source_id = ?, title = ?, root_folder = ?, description = COALESCE(?, description),
+            instructor = COALESCE(?, instructor), category_id = COALESCE(?, category_id),
+            cover_path = COALESCE(?, cover_path), updated_at = ?
         WHERE id = ?
-      `, [course.title, course.description || null, course.instructor || null, course.category_id || null, course.cover_path || null, now, course.id]);
+      `, [course.source_id, course.title, course.root_folder, course.description || null, course.instructor || null, course.category_id || null, course.cover_path || null, now, course.id]);
     } else {
       this.db.run(`
         INSERT INTO courses (id, source_id, title, description, instructor, category_id, cover_path, total_duration_seconds, status, is_favorite, root_folder, created_at, updated_at)
@@ -218,6 +219,8 @@ export class CoursesRepository {
   }
 
   public delete(id: string): void {
+    const course = this.getById(id);
+    const sourceId = course ? course.source_id : null;
     this.db.transaction(() => {
       this.db.run(`DELETE FROM lesson_progress WHERE course_id = ?`, [id]);
       this.db.run(`DELETE FROM study_sessions WHERE course_id = ?`, [id]);
@@ -229,6 +232,16 @@ export class CoursesRepository {
       this.db.run(`DELETE FROM lessons WHERE course_id = ?`, [id]);
       this.db.run(`DELETE FROM modules WHERE course_id = ?`, [id]);
       this.db.run(`DELETE FROM courses WHERE id = ?`, [id]);
+
+      if (sourceId) {
+        const remaining = this.db.get<{ count: number }>(
+          `SELECT count(*) as count FROM courses WHERE source_id = ?`,
+          [sourceId]
+        );
+        if (!remaining || remaining.count === 0) {
+          this.db.run(`DELETE FROM sources WHERE id = ?`, [sourceId]);
+        }
+      }
     });
     this.db.saveImmediate();
   }

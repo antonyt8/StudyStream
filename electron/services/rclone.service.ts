@@ -24,6 +24,70 @@ export class RcloneService {
   }
 
   /**
+   * Resolves the actual binary path of rclone, checking settings, PATH, WinGet, Scoop, etc.
+   */
+  public resolveExecutable(configuredPath: string = 'rclone'): string {
+    if (path.isAbsolute(configuredPath) && fs.existsSync(configuredPath)) {
+      return configuredPath;
+    }
+
+    const candidates: string[] = [];
+
+    if (configuredPath && configuredPath !== 'rclone') {
+      candidates.push(configuredPath);
+      if (process.platform === 'win32' && !configuredPath.endsWith('.exe')) {
+        candidates.push(`${configuredPath}.exe`);
+      }
+    }
+
+    if (process.platform === 'win32') {
+      const localAppData = process.env.LOCALAPPDATA || '';
+      const userProfile = process.env.USERPROFILE || '';
+      const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
+
+      // WinGet packages directory
+      const wingetDir = path.join(localAppData, 'Microsoft', 'WinGet', 'Packages');
+      if (fs.existsSync(wingetDir)) {
+        try {
+          const entries = fs.readdirSync(wingetDir, { withFileTypes: true });
+          for (const entry of entries) {
+            if (entry.isDirectory() && entry.name.toLowerCase().includes('rclone')) {
+              const fullDir = path.join(wingetDir, entry.name);
+              const subEntries = fs.readdirSync(fullDir, { withFileTypes: true });
+              for (const sub of subEntries) {
+                if (sub.isDirectory() && sub.name.toLowerCase().includes('rclone')) {
+                  const exe = path.join(fullDir, sub.name, 'rclone.exe');
+                  if (fs.existsSync(exe)) candidates.push(exe);
+                } else if (sub.isFile() && sub.name.toLowerCase() === 'rclone.exe') {
+                  candidates.push(path.join(fullDir, sub.name));
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+
+      candidates.push(
+        path.join(programFiles, 'rclone', 'rclone.exe'),
+        'C:\\rclone\\rclone.exe',
+        path.join(userProfile, 'scoop', 'shims', 'rclone.exe'),
+        path.join(process.env.ProgramData || 'C:\\ProgramData', 'chocolatey', 'bin', 'rclone.exe'),
+        'rclone.exe'
+      );
+    }
+
+    candidates.push('rclone');
+
+    for (const c of candidates) {
+      if (path.isAbsolute(c) && fs.existsSync(c)) {
+        return c;
+      }
+    }
+
+    return configuredPath || (process.platform === 'win32' ? 'rclone.exe' : 'rclone');
+  }
+
+  /**
    * Helper to check an available TCP port on loopback
    */
   private async getFreePort(): Promise<number> {
@@ -47,9 +111,10 @@ export class RcloneService {
    * Checks if Rclone is installed, gets its version and configured remotes
    */
   public async checkStatus(executablePath: string = 'rclone'): Promise<RcloneStatus> {
+    const exec = this.resolveExecutable(executablePath);
     return new Promise((resolve) => {
       try {
-        const child = spawn(executablePath, ['version'], {
+        const child = spawn(exec, ['version'], {
           windowsHide: true,
           shell: false
         });
@@ -105,9 +170,10 @@ export class RcloneService {
    * Lists configured remotes safely
    */
   public async listRemotes(executablePath: string = 'rclone'): Promise<RcloneRemote[]> {
+    const exec = this.resolveExecutable(executablePath);
     return new Promise((resolve) => {
       try {
-        const child = spawn(executablePath, ['listremotes'], {
+        const child = spawn(exec, ['listremotes'], {
           windowsHide: true,
           shell: false
         });
@@ -138,9 +204,10 @@ export class RcloneService {
    * Tests access to a remote directory (low timeout)
    */
   public async testRemoteAccess(executablePath: string = 'rclone', remotePath: string): Promise<{ success: boolean; message?: string }> {
+    const exec = this.resolveExecutable(executablePath);
     return new Promise((resolve) => {
       try {
-        const child = spawn(executablePath, ['lsd', remotePath, '--max-depth', '1', '--timeout', '8s'], {
+        const child = spawn(exec, ['lsd', remotePath, '--max-depth', '1', '--timeout', '8s'], {
           windowsHide: true,
           shell: false
         });
@@ -172,6 +239,7 @@ export class RcloneService {
     remotePath: string,
     options: { recursive?: boolean; maxDepth?: number; dirsOnly?: boolean } = {}
   ): Promise<RcloneItem[]> {
+    const exec = this.resolveExecutable(executablePath);
     return new Promise((resolve, reject) => {
       try {
         const args = ['lsjson', remotePath];
@@ -185,7 +253,7 @@ export class RcloneService {
           args.push('--dirs-only');
         }
 
-        const child = spawn(executablePath, args, {
+        const child = spawn(exec, args, {
           windowsHide: true,
           shell: false
         });
@@ -234,7 +302,8 @@ export class RcloneService {
     
     try {
       configPath = await new Promise<string>((resolve) => {
-        const child = spawn(executablePath, ['config', 'file'], {
+        const exec = this.resolveExecutable(executablePath);
+        const child = spawn(exec, ['config', 'file'], {
           windowsHide: true,
           shell: false
         });
@@ -339,7 +408,8 @@ export class RcloneService {
 
     return new Promise((resolve, reject) => {
       try {
-        const child = spawn(executablePath, args, {
+        const exec = this.resolveExecutable(executablePath);
+        const child = spawn(exec, args, {
           windowsHide: true,
           shell: false
         });
@@ -451,7 +521,8 @@ export class RcloneService {
           '--use-json-log'
         ];
 
-        const child = spawn(executablePath, args, {
+        const exec = this.resolveExecutable(executablePath);
+        const child = spawn(exec, args, {
           windowsHide: true,
           shell: false
         });

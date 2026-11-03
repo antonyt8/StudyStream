@@ -32,7 +32,7 @@ export function registerLibraryIpc(mainWindow: BrowserWindow): void {
     }
 
     const id = `src_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    sourcesRepo.create({
+    const effectiveId = sourcesRepo.create({
       id,
       name: data.name,
       source_type: data.sourceType,
@@ -42,7 +42,7 @@ export function registerLibraryIpc(mainWindow: BrowserWindow): void {
       enabled: 1
     });
 
-    return sourcesRepo.getById(id);
+    return sourcesRepo.getById(effectiveId);
   });
 
   ipcMain.handle('library:list-sources', async () => {

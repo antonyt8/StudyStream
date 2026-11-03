@@ -20,8 +20,35 @@ export class SourcesRepository {
     `, [id]);
   }
 
-  public create(source: Omit<Source, 'created_at' | 'updated_at'>): void {
+  public getByRootPath(rootPath: string): Source | null {
+    return this.db.get<Source>(`
+      SELECT id, name, source_type, root_path, remote_name, enabled, scan_mode, last_scan_at, created_at, updated_at
+      FROM sources
+      WHERE root_path = ?
+      LIMIT 1
+    `, [rootPath]);
+  }
+
+  public create(source: Omit<Source, 'created_at' | 'updated_at'>): string {
     const now = new Date().toISOString();
+    const existing = this.getByRootPath(source.root_path);
+    if (existing) {
+      this.db.run(`
+        UPDATE sources
+        SET name = ?, source_type = ?, remote_name = COALESCE(?, remote_name),
+            scan_mode = ?, enabled = 1, updated_at = ?
+        WHERE id = ?
+      `, [
+        source.name,
+        source.source_type,
+        source.remote_name || null,
+        source.scan_mode || 'single_course',
+        now,
+        existing.id
+      ]);
+      return existing.id;
+    }
+
     this.db.run(`
       INSERT INTO sources (id, name, source_type, root_path, remote_name, enabled, scan_mode, last_scan_at, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -37,6 +64,7 @@ export class SourcesRepository {
       now,
       now
     ]);
+    return source.id;
   }
 
   public updateLastScan(id: string): void {

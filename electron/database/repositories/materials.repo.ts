@@ -26,9 +26,9 @@ export class MaterialsRepository {
     if (existing) {
       this.db.run(`
         UPDATE materials
-        SET title = ?, file_path = ?, file_type = ?, file_size = ?, module_id = ?
+        SET course_id = ?, title = ?, file_path = ?, file_type = ?, file_size = ?, module_id = ?
         WHERE id = ?
-      `, [material.title, material.file_path, material.file_type, material.file_size, material.module_id || null, material.id]);
+      `, [material.course_id, material.title, material.file_path, material.file_type, material.file_size, material.module_id || null, material.id]);
     } else {
       this.db.run(`
         INSERT INTO materials (id, course_id, module_id, title, file_path, file_type, file_size, created_at)

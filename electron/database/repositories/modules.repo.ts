@@ -25,9 +25,9 @@ export class ModulesRepository {
     if (existing) {
       this.db.run(`
         UPDATE modules
-        SET title = ?, position = ?, relative_path = ?, updated_at = ?
+        SET course_id = ?, title = ?, position = ?, relative_path = ?, updated_at = ?
         WHERE id = ?
-      `, [mod.title, mod.position, mod.relative_path, now, mod.id]);
+      `, [mod.course_id, mod.title, mod.position, mod.relative_path, now, mod.id]);
     } else {
       this.db.run(`
         INSERT INTO modules (id, course_id, title, position, relative_path, created_at, updated_at)

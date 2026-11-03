@@ -92,6 +92,17 @@ export class DatabaseService {
     } catch {
       // Column already exists
     }
+
+    // Clean up duplicate or orphaned sources
+    try {
+      this.db.run(`
+        DELETE FROM sources
+        WHERE id NOT IN (SELECT DISTINCT source_id FROM courses)
+          AND root_path IN (SELECT root_path FROM sources GROUP BY root_path HAVING count(*) > 1);
+      `);
+    } catch {
+      // ignore
+    }
   }
 
   public getDbPath(): string {
