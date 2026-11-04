@@ -9,6 +9,7 @@ import {
   BookOpen,
   Heart,
   ChevronDown,
+  ChevronUp,
   ChevronRight,
   Download,
   HardDrive,
@@ -858,11 +859,15 @@ export const CourseDetails: React.FC<CourseDetailsProps> = ({
                     className="bg-background-surface/80 border border-border rounded-xl overflow-hidden transition-all shadow-sm"
                   >
                     {/* Module Header */}
-                    <button
-                      onClick={() => toggleModule(mod.id)}
-                      className="w-full px-5 py-3.5 flex items-center justify-between hover:bg-background-elevated/40 transition-colors text-left"
-                    >
-                      <div className="flex items-center gap-3 min-w-0 pr-2">
+                    <div className="w-full px-5 py-3.5 flex items-center justify-between hover:bg-background-elevated/40 transition-colors text-left">
+                      <button
+                        type="button"
+                        onClick={() => toggleModule(mod.id)}
+                        className="flex items-center gap-3 min-w-0 pr-2 text-left"
+                        title={isCollapsed ? 'Expandir módulo' : 'Recolher módulo'}
+                        aria-label={`${isCollapsed ? 'Expandir' : 'Recolher'} módulo ${mod.title}`}
+                        aria-expanded={!isCollapsed}
+                      >
                         {isCollapsed ? (
                           <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
                         ) : (
@@ -876,7 +881,7 @@ export const CourseDetails: React.FC<CourseDetailsProps> = ({
                             {modCompleted} de {lessons.length} aulas concluídas
                           </span>
                         </div>
-                      </div>
+                      </button>
 
                       <div className="flex items-center gap-3 shrink-0">
                         {lessons.some(l => l.remote_path && !l.local_path) && (
@@ -894,8 +899,23 @@ export const CourseDetails: React.FC<CourseDetailsProps> = ({
                         <div className="text-xs font-semibold text-slate-400 bg-background/60 px-2 py-0.5 rounded-md border border-border/40">
                           {lessons.length} {lessons.length === 1 ? 'aula' : 'aulas'}
                         </div>
+
+                        <button
+                          type="button"
+                          onClick={() => toggleModule(mod.id)}
+                          className="rounded-lg border border-border bg-background-elevated p-1.5 text-slate-400 transition-colors hover:bg-primary-600 hover:text-white"
+                          title={isCollapsed ? 'Expandir módulo' : 'Recolher módulo'}
+                          aria-label={`${isCollapsed ? 'Expandir' : 'Recolher'} módulo ${mod.title}`}
+                          aria-expanded={!isCollapsed}
+                        >
+                          {isCollapsed ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronUp className="h-4 w-4" />
+                          )}
+                        </button>
                       </div>
-                    </button>
+                    </div>
 
                     {/* Lessons List */}
                     {!isCollapsed && (

@@ -32,6 +32,7 @@ import {
   Subtitles,
   Tv,
   X,
+  Search,
   ExternalLink
 } from 'lucide-react';
 
@@ -74,10 +75,12 @@ export const Player: React.FC<PlayerProps> = ({
   const [controlsVisible, setControlsVisible] = useState<boolean>(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [isPlaybackSettingsOpen, setIsPlaybackSettingsOpen] = useState<boolean>(false);
+  const [isPictureInPicture, setIsPictureInPicture] = useState<boolean>(false);
 
   // Sidebar & Study state
   const [activeTab, setActiveTab] = useState<'lessons' | 'notes' | 'bookmarks'>('lessons');
   const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({});
+  const [lessonSearch, setLessonSearch] = useState<string>('');
   const [notes, setNotes] = useState<Note[]>([]);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [newNoteContent, setNewNoteContent] = useState<string>('');
@@ -94,6 +97,7 @@ export const Player: React.FC<PlayerProps> = ({
   const lastVideoUiUpdateRef = useRef<number>(0);
   const bufferingStartedAtRef = useRef<number | null>(null);
   const bufferingSecondsRef = useRef<number>(0);
+  const pictureInPictureTransitionRef = useRef<boolean>(false);
 
   // Load course details, media URL, notes, and bookmarks
   useEffect(() => {
@@ -335,6 +339,18 @@ export const Player: React.FC<PlayerProps> = ({
   const currentModuleId = courseData?.modules.find((module) =>
     module.lessons?.some((lesson) => lesson.id === lessonId)
   )?.id;
+  const normalizedLessonSearch = lessonSearch.trim().toLocaleLowerCase();
+  const visibleModules = courseData?.modules.map((module) => ({
+    module,
+    lessons: module.lessons?.filter((lesson) => {
+      if (!normalizedLessonSearch) return true;
+      return `${module.title} ${lesson.title}`.toLocaleLowerCase().includes(normalizedLessonSearch);
+    }) || []
+  })).filter(({ module, lessons }) =>
+    !normalizedLessonSearch || module.title.toLocaleLowerCase().includes(normalizedLessonSearch) || lessons.length > 0
+  ) || [];
+  const isModuleExpanded = (moduleId: string) =>
+    normalizedLessonSearch.length > 0 || (expandedModules[moduleId] ?? moduleId === currentModuleId);
 
   const handleNextLesson = () => {
     if (nextLesson) {
@@ -347,6 +363,25 @@ export const Player: React.FC<PlayerProps> = ({
       onSelectLesson(courseId, prevLesson.id);
     }
   };
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleEnterPictureInPicture = () => setIsPictureInPicture(true);
+    const handleLeavePictureInPicture = () => setIsPictureInPicture(false);
+
+    video.addEventListener('enterpictureinpicture', handleEnterPictureInPicture);
+    video.addEventListener('leavepictureinpicture', handleLeavePictureInPicture);
+
+    return () => {
+      video.removeEventListener('enterpictureinpicture', handleEnterPictureInPicture);
+      video.removeEventListener('leavepictureinpicture', handleLeavePictureInPicture);
+      if (document.pictureInPictureElement === video) {
+        document.exitPictureInPicture().catch(() => {});
+      }
+    };
+  }, [videoUrl]);
 
   // Time format helper (HH:MM:SS or MM:SS)
   const formatTime = (seconds: number) => {
@@ -381,7 +416,8 @@ export const Player: React.FC<PlayerProps> = ({
 
   // Toggle Picture-in-Picture
   const togglePiP = async () => {
-    if (!videoRef.current) return;
+    if (!videoRef.current || pictureInPictureTransitionRef.current) return;
+    pictureInPictureTransitionRef.current = true;
     try {
       if (document.pictureInPictureElement) {
         await document.exitPictureInPicture();
@@ -389,7 +425,10 @@ export const Player: React.FC<PlayerProps> = ({
         await videoRef.current.requestPictureInPicture();
       }
     } catch (err) {
-      console.warn('PiP notice:', err);
+      console.warn('Não foi possível alternar o Picture-in-Picture:', err);
+    } finally {
+      pictureInPictureTransitionRef.current = false;
+      setIsPictureInPicture(document.pictureInPictureElement === videoRef.current);
     }
   };
 
@@ -903,8 +942,12 @@ export const Player: React.FC<PlayerProps> = ({
                 {/* Picture in Picture */}
                 <button
                   onClick={togglePiP}
-                  className="p-2 text-slate-300 hover:text-white transition-colors"
-                  title="Picture-in-Picture (Janela Flutuante)"
+                  disabled={pictureInPictureTransitionRef.current}
+                  className={`p-2 transition-colors ${
+                    isPictureInPicture ? 'text-primary-400 bg-white/10 rounded' : 'text-slate-300 hover:text-white'
+                  } disabled:opacity-50`}
+                  title={isPictureInPicture ? 'Fechar janela flutuante' : 'Abrir janela flutuante'}
+                  aria-label={isPictureInPicture ? 'Fechar janela flutuante' : 'Abrir janela flutuante'}
                 >
                   <Tv className="w-5 h-5" />
                 </button>
@@ -994,7 +1037,32 @@ export const Player: React.FC<PlayerProps> = ({
           {/* Tab 1: Lessons List */}
           {activeTab === 'lessons' && (
             <div className="flex-1 overflow-y-auto divide-y divide-border/40 p-2 space-y-3">
-              {courseData?.modules.map((mod, modIdx) => (
+              <div className="sticky top-0 z-10 rounded-lg border border-border bg-background-subtle/95 p-2 backdrop-blur-sm">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                  <input
+                    type="search"
+                    value={lessonSearch}
+                    onChange={(event) => setLessonSearch(event.target.value)}
+                    placeholder="Buscar módulo ou aula..."
+                    aria-label="Buscar módulo ou aula"
+                    className="w-full rounded-md border border-border bg-background py-2 pl-8 pr-8 text-xs text-slate-200 outline-none placeholder:text-slate-500 focus:border-primary-500"
+                  />
+                  {lessonSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setLessonSearch('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-500 hover:text-white"
+                      title="Limpar busca"
+                      aria-label="Limpar busca"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {visibleModules.map(({ module: mod, lessons }, modIdx) => (
                 <div key={mod.id} className="space-y-1">
                   <button
                     type="button"
@@ -1003,17 +1071,17 @@ export const Player: React.FC<PlayerProps> = ({
                       [mod.id]: !(previous[mod.id] ?? mod.id === currentModuleId)
                     }))}
                     className="flex w-full items-center gap-1.5 border-b border-border/70 px-2 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-slate-400 transition-colors hover:text-white"
-                    aria-expanded={expandedModules[mod.id] ?? mod.id === currentModuleId}
-                    title={`${(expandedModules[mod.id] ?? mod.id === currentModuleId) ? 'Minimizar' : 'Expandir'} módulo`}
+                    aria-expanded={isModuleExpanded(mod.id)}
+                    title={`${isModuleExpanded(mod.id) ? 'Minimizar' : 'Expandir'} módulo`}
                   >
-                    {(expandedModules[mod.id] ?? mod.id === currentModuleId) ? (
+                    {isModuleExpanded(mod.id) ? (
                       <ChevronDown className="h-3.5 w-3.5 shrink-0 text-primary-400" />
                     ) : (
                       <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-500" />
                     )}
                     <span className="min-w-0">{`Módulo ${modIdx + 1}: ${mod.title}`}</span>
                   </button>
-                  {(expandedModules[mod.id] ?? mod.id === currentModuleId) && mod.lessons?.map((les, idx) => {
+                  {isModuleExpanded(mod.id) && lessons.map((les, idx) => {
                     const isCurrent = les.id === lessonId;
                     const isCompleted = les.progress?.completed === 1;
                     const isPdf = les.media_type === 'application/pdf' || les.original_path.toLowerCase().endsWith('.pdf');
@@ -1066,6 +1134,11 @@ export const Player: React.FC<PlayerProps> = ({
                   })}
                 </div>
               ))}
+              {normalizedLessonSearch && visibleModules.length === 0 && (
+                <div className="px-3 py-8 text-center text-xs text-slate-500">
+                  Nenhum módulo ou aula encontrado.
+                </div>
+              )}
             </div>
           )}
 
