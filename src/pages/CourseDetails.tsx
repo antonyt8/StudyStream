@@ -849,7 +849,7 @@ export const CourseDetails: React.FC<CourseDetailsProps> = ({
           ) : (
             <div className="space-y-3">
               {filteredModules.map((mod, modIdx) => {
-                const isCollapsed = lessonSearch.trim() ? false : (collapsedModules[mod.id] || false);
+                const isCollapsed = collapsedModules[mod.id] || false;
                 const lessons = mod.lessons || [];
                 const modCompleted = lessons.filter(l => l.progress?.completed === 1).length;
 
