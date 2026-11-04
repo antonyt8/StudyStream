@@ -227,9 +227,14 @@ export class LibraryService {
         }
       }
 
+      const validModuleIds = new Set(currentModuleIds);
       for (const mat of courseData.materials) {
         currentMaterialIds.push(mat.id);
-        this.materialsRepo.upsert(mat);
+        const safeModuleId = mat.module_id && validModuleIds.has(mat.module_id) ? mat.module_id : undefined;
+        this.materialsRepo.upsert({
+          ...mat,
+          module_id: safeModuleId
+        });
       }
 
       this.pruneObsoleteRecords('modules', courseId, currentModuleIds);
@@ -694,7 +699,8 @@ export class LibraryService {
 
         let modPos = 1;
         for (const mod of sortedModules) {
-          if (mod.lessons.length === 0) continue;
+          const modMaterials = courseEntry.materials.filter(m => m.moduleTitle === mod.title);
+          if (mod.lessons.length === 0 && modMaterials.length === 0) continue;
 
           const modId = this.makeStableId('mod', courseId, mod.title);
           currentModuleIds.push(modId);
@@ -733,15 +739,17 @@ export class LibraryService {
           }
         }
 
+        const validModuleIds = new Set(currentModuleIds);
         for (const mat of courseEntry.materials) {
           const matId = this.makeStableId('mat', courseId, mat.filePath);
           currentMaterialIds.push(matId);
-          const modId = mat.moduleTitle ? this.makeStableId('mod', courseId, mat.moduleTitle) : undefined;
+          const targetModId = mat.moduleTitle ? this.makeStableId('mod', courseId, mat.moduleTitle) : undefined;
+          const safeModId = targetModId && validModuleIds.has(targetModId) ? targetModId : undefined;
 
           this.materialsRepo.upsert({
             id: matId,
             course_id: courseId,
-            module_id: modId,
+            module_id: safeModId,
             title: mat.title,
             file_path: mat.filePath,
             file_type: mat.fileType,

@@ -22,18 +22,26 @@ export class MaterialsRepository {
     file_type: string;
     file_size: number;
   }): void {
+    let moduleId = material.module_id || null;
+    if (moduleId) {
+      const modExists = this.db.get<{ id: string }>(`SELECT id FROM modules WHERE id = ?`, [moduleId]);
+      if (!modExists) {
+        moduleId = null;
+      }
+    }
+
     const existing = this.db.get<{ id: string }>(`SELECT id FROM materials WHERE id = ?`, [material.id]);
     if (existing) {
       this.db.run(`
         UPDATE materials
         SET course_id = ?, title = ?, file_path = ?, file_type = ?, file_size = ?, module_id = ?
         WHERE id = ?
-      `, [material.course_id, material.title, material.file_path, material.file_type, material.file_size, material.module_id || null, material.id]);
+      `, [material.course_id, material.title, material.file_path, material.file_type, material.file_size, moduleId, material.id]);
     } else {
       this.db.run(`
         INSERT INTO materials (id, course_id, module_id, title, file_path, file_type, file_size, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-      `, [material.id, material.course_id, material.module_id || null, material.title, material.file_path, material.file_type, material.file_size]);
+      `, [material.id, material.course_id, moduleId, material.title, material.file_path, material.file_type, material.file_size]);
     }
   }
 

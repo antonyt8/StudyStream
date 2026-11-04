@@ -62,7 +62,7 @@ export class SessionsRepository {
     const today = this.db.get<{ total: number }>(`
       SELECT COALESCE(SUM(elapsed_seconds), 0) AS total
       FROM study_sessions
-      WHERE date(started_at) = date('now')
+      WHERE date(started_at, 'localtime') = date('now', 'localtime')
     `);
 
     // Week (last 7 days)
