@@ -22,6 +22,7 @@ extraMetadata:
 
 win:
   sign: null
+  signAndEditExecutable: false
   target:
     - target: dir
       arch:

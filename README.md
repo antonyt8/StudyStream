@@ -143,6 +143,8 @@ studystream/
      npm run build:win
      ```
      O instalador executável será gerado em `release/StudyStream-Setup-1.0.0.exe`.
+     A configuração atual não tenta editar ou assinar o executável nativo durante o build,
+     evitando falhas do `rcedit` em ambientes sem certificado de assinatura configurado.
 
 ---
 
