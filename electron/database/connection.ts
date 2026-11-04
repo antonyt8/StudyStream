@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { app } from 'electron';
 import { initialMigration } from './migrations/001_initial';
+import { AppLogger } from '../services/app-logger';
 
 export class DatabaseService {
   private static instance: DatabaseService | null = null;
@@ -10,6 +11,8 @@ export class DatabaseService {
   private SQL: SqlJsStatic | null = null;
   private dbPath: string = '';
   private saveTimeout: NodeJS.Timeout | null = null;
+  private autoBackupTimer: NodeJS.Timeout | null = null;
+  private logger = AppLogger.getInstance();
 
   private constructor() {}
 
@@ -54,6 +57,7 @@ export class DatabaseService {
     }
 
     if (fs.existsSync(this.dbPath)) {
+      this.createAutomaticBackup('startup');
       const fileBuffer = fs.readFileSync(this.dbPath);
       this.db = new this.SQL.Database(fileBuffer);
     } else {
@@ -68,6 +72,7 @@ export class DatabaseService {
 
     // Initial save
     this.saveImmediate();
+    this.autoBackupTimer = setInterval(() => this.createAutomaticBackup('scheduled'), 30 * 60 * 1000);
   }
 
   private runMigrations(): void {
@@ -120,7 +125,7 @@ export class DatabaseService {
       }
       fs.writeFileSync(this.dbPath, buffer);
     } catch (err) {
-      console.error('Error saving SQLite database to disk:', err);
+      this.logger.error('Error saving SQLite database to disk', err);
     }
   }
 
@@ -221,14 +226,19 @@ export class DatabaseService {
         return { success: false, error: 'Arquivo de backup corrompido ou inválido' };
       }
 
-      // 3. Close current db and replace
+      // 3. Replace atomically through a temporary file, then reopen it.
+      const temporaryPath = `${this.dbPath}.restore_${Date.now()}.tmp`;
+      fs.copyFileSync(sourcePath, temporaryPath);
       if (this.db) {
         this.db.close();
       }
-      fs.copyFileSync(sourcePath, this.dbPath);
+      fs.renameSync(temporaryPath, this.dbPath);
       this.db = new this.SQL.Database(newBuffer);
+      this.db.run('PRAGMA foreign_keys = ON;');
+      this.logger.info('Database restored successfully', { sourcePath });
       return { success: true };
     } catch (err: any) {
+      this.logger.error('Database restore failed', err, { sourcePath });
       return { success: false, error: err.message };
     }
   }
@@ -248,10 +258,34 @@ export class DatabaseService {
   }
 
   public close(): void {
+    if (this.autoBackupTimer) {
+      clearInterval(this.autoBackupTimer);
+      this.autoBackupTimer = null;
+    }
     if (this.db) {
       this.saveImmediate();
       this.db.close();
       this.db = null;
+    }
+  }
+
+  private createAutomaticBackup(reason: 'startup' | 'scheduled'): void {
+    if (!this.dbPath || !fs.existsSync(this.dbPath)) return;
+    try {
+      const backupDir = path.join(path.dirname(this.dbPath), 'backups');
+      fs.mkdirSync(backupDir, { recursive: true });
+      const target = path.join(backupDir, `studystream_${reason}_${new Date().toISOString().replace(/[:.]/g, '-')}.db`);
+      fs.copyFileSync(this.dbPath, target);
+      const backups = fs.readdirSync(backupDir)
+        .filter(file => file.endsWith('.db'))
+        .map(file => ({ file, time: fs.statSync(path.join(backupDir, file)).mtimeMs }))
+        .sort((a, b) => b.time - a.time);
+      for (const old of backups.slice(10)) {
+        fs.rmSync(path.join(backupDir, old.file), { force: true });
+      }
+      this.logger.info('Automatic database backup created', { reason, target });
+    } catch (error) {
+      this.logger.error('Automatic database backup failed', error, { reason });
     }
   }
 }

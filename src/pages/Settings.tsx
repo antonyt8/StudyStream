@@ -21,7 +21,8 @@ import {
   Sparkles,
   ShieldAlert,
   Moon,
-  Sun
+  Sun,
+  FileText
 } from 'lucide-react';
 
 interface SettingsPageProps {
@@ -173,6 +174,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onReScanSource }) =>
       } else {
         alert(`Erro ao limpar cache: ${res.error}`);
       }
+    }
+  };
+
+  const handleOpenLogs = async () => {
+    const res = await window.api.openLogs();
+    if (!res.success) {
+      alert(`Erro ao abrir logs: ${res.error}`);
     }
   };
 
@@ -421,11 +429,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onReScanSource }) =>
                   Modo de Cache VFS
                 </label>
                 <select
-                  value={settings.rcloneVfsCacheMode || 'minimal'}
+                  value={settings.rcloneVfsCacheMode || 'full'}
                   onChange={(e) => setSettings({ ...settings, rcloneVfsCacheMode: e.target.value as any })}
                   className="w-full bg-background-surface border border-border text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none"
                 >
-                  <option value="minimal">minimal (Recomendado)</option>
+                  <option value="full">full (Recomendado para vídeo)</option>
+                  <option value="minimal">minimal</option>
                   <option value="writes">writes</option>
                   <option value="full">full</option>
                   <option value="off">off (sem cache)</option>
@@ -438,7 +447,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onReScanSource }) =>
                 </label>
                 <input
                   type="text"
-                  value={settings.rcloneVfsCacheMaxSize || '10G'}
+                  value={settings.rcloneVfsCacheMaxSize || '50G'}
                   onChange={(e) => setSettings({ ...settings, rcloneVfsCacheMaxSize: e.target.value })}
                   placeholder="Ex: 10G ou 20G"
                   className="w-full bg-background-surface border border-border text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none"
@@ -451,7 +460,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onReScanSource }) =>
                 </label>
                 <input
                   type="text"
-                  value={settings.rcloneVfsCacheMaxAge || '24h'}
+                  value={settings.rcloneVfsCacheMaxAge || '72h'}
                   onChange={(e) => setSettings({ ...settings, rcloneVfsCacheMaxAge: e.target.value })}
                   placeholder="Ex: 24h ou 48h"
                   className="w-full bg-background-surface border border-border text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none"
@@ -464,7 +473,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onReScanSource }) =>
                 </label>
                 <input
                   type="text"
-                  value={settings.rcloneVfsReadChunkSize || '128M'}
+                  value={settings.rcloneVfsReadChunkSize || '64M'}
                   onChange={(e) => setSettings({ ...settings, rcloneVfsReadChunkSize: e.target.value })}
                   placeholder="Ex: 128M ou 64M"
                   className="w-full bg-background-surface border border-border text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none"
@@ -673,6 +682,15 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onReScanSource }) =>
             >
               <ShieldCheck className="w-4 h-4" />
               <span>Verificar Integridade SQLite</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleOpenLogs}
+              className="px-4 py-2 bg-background-elevated hover:bg-background-elevated/80 border border-border text-xs font-semibold text-slate-200 rounded-lg flex items-center gap-2 transition-colors"
+            >
+              <FileText className="w-4 h-4" />
+              <span>Abrir Pasta de Logs</span>
             </button>
           </div>
 

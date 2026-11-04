@@ -6,11 +6,13 @@ import { DatabaseService } from '../database/connection';
 import { AppSettings } from '../types';
 
 import { RcloneService } from '../services/rclone.service';
+import { AppLogger } from '../services/app-logger';
 
 export function registerSettingsIpc(mainWindow: BrowserWindow): void {
   const settingsRepo = new SettingsRepository();
   const db = DatabaseService.getInstance();
   const rcloneService = RcloneService.getInstance();
+  const logger = AppLogger.getInstance();
 
   ipcMain.handle('settings:get', async () => {
     return settingsRepo.getAll();
@@ -110,6 +112,13 @@ export function registerSettingsIpc(mainWindow: BrowserWindow): void {
     return { success: true };
   });
 
+  ipcMain.handle('settings:open-logs', async () => {
+    const logDir = logger.getLogDirectory();
+    fs.mkdirSync(logDir, { recursive: true });
+    const error = await shell.openPath(logDir);
+    return error ? { success: false, error } : { success: true, path: logDir };
+  });
+
   ipcMain.handle('settings:export-json', async () => {
     const result = await dialog.showSaveDialog(mainWindow, {
       title: 'Exportar Dados Pessoais do StudyStream',
@@ -195,4 +204,3 @@ export function registerSettingsIpc(mainWindow: BrowserWindow): void {
     }
   });
 }
-

@@ -42,6 +42,7 @@ export interface Course {
   progress_percent?: number;
   source_name?: string;
   source_type?: SourceType;
+  availability?: 'available' | 'unavailable';
 }
 
 export interface CourseModule {
@@ -338,5 +339,4 @@ export interface ExplorerListing {
   videoCount: number;
   pdfCount: number;
 }
-
 

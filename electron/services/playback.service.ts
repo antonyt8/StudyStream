@@ -10,11 +10,25 @@ import { SourcesRepository } from '../database/repositories/sources.repo';
 import { RcloneService } from './rclone.service';
 import { SettingsRepository } from '../database/repositories/settings.repo';
 
+export function parsePlaybackRange(value: string | undefined, fileSize: number): { start: number; end: number } | null {
+  if (!value) return null;
+  const match = value.match(/^bytes=(\d*)-(\d*)$/);
+  if (!match || (!match[1] && !match[2])) return null;
+  const suffix = !match[1] && Boolean(match[2]);
+  const start = suffix ? Math.max(0, fileSize - Number(match[2])) : Number(match[1]);
+  const end = suffix || !match[2] ? fileSize - 1 : Math.min(Number(match[2]), fileSize - 1);
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start >= fileSize || start > end) {
+    return null;
+  }
+  return { start, end };
+}
+
 export class PlaybackService {
   private static instance: PlaybackService | null = null;
   private localServer: http.Server | null = null;
   private localServerPort: number = 0;
-  private sessionToken: string = crypto.randomBytes(16).toString('hex');
+  private playbackTokens = new Map<string, number>();
+  private activePrefetches = new Map<string, http.ClientRequest>();
   private sourcesRepo = new SourcesRepository();
   private settingsRepo = new SettingsRepository();
   private rcloneService = RcloneService.getInstance();
@@ -58,13 +72,22 @@ export class PlaybackService {
         const token = parsedUrl.searchParams.get('token');
         const rawPath = parsedUrl.searchParams.get('file');
 
-        if (token !== this.sessionToken || !rawPath) {
+        const expiresAt = token ? this.playbackTokens.get(token) : undefined;
+        if (!token || !expiresAt || expiresAt < Date.now() || !rawPath) {
+          if (token) this.playbackTokens.delete(token);
           res.writeHead(403);
           res.end('Forbidden: Invalid session token');
           return;
         }
 
-        const decodedPath = decodeURIComponent(rawPath);
+        let decodedPath: string;
+        try {
+          decodedPath = decodeURIComponent(rawPath);
+        } catch {
+          res.writeHead(400);
+          res.end('Bad Request: Invalid file path encoding');
+          return;
+        }
 
         // Security check: Verify file exists and belongs to configured library sources
         const sources = this.sourcesRepo.list();
@@ -89,8 +112,21 @@ export class PlaybackService {
         }
 
         const stat = fs.statSync(decodedPath);
+        if (!stat.isFile()) {
+          res.writeHead(404);
+          res.end('File Not Found');
+          return;
+        }
         const fileSize = stat.size;
         const range = req.headers.range;
+        const entityTag = `"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+        res.setHeader('ETag', entityTag);
+        res.setHeader('Last-Modified', stat.mtime.toUTCString());
+        if (req.headers['if-none-match'] === entityTag && !range) {
+          res.writeHead(304);
+          res.end();
+          return;
+        }
 
         const ext = path.extname(decodedPath).toLowerCase();
 
@@ -131,24 +167,21 @@ export class PlaybackService {
 
         if (range) {
           // Parse Range: bytes=start-end
-          const parts = range.replace(/bytes=/, '').split('-');
-          const start = parseInt(parts[0], 10);
-          const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-
-          if (start >= fileSize || end >= fileSize) {
-            res.writeHead(416, {
-              'Content-Range': `bytes */${fileSize}`,
-            });
+          const parsedRange = parsePlaybackRange(range, fileSize);
+          if (!parsedRange) {
+            res.writeHead(416, { 'Content-Range': `bytes */${fileSize}` });
             res.end();
             return;
           }
+
+          const { start, end } = parsedRange;
 
           if (req.socket) req.socket.setNoDelay(true);
           const chunksize = end - start + 1;
           const stream = fs.createReadStream(decodedPath, {
             start,
             end,
-            highWaterMark: 1024 * 1024 // 1MB chunk buffer for high-throughput video streaming
+            highWaterMark: 2 * 1024 * 1024
           });
 
           res.writeHead(206, {
@@ -162,6 +195,15 @@ export class PlaybackService {
           if (req.method === 'HEAD') {
             res.end();
           } else {
+            const closeStream = () => stream.destroy();
+            req.on('aborted', closeStream);
+            res.on('close', closeStream);
+            stream.on('error', (err) => {
+              if (!res.headersSent) {
+                res.writeHead(500);
+              }
+              res.destroy(err);
+            });
             stream.pipe(res);
           }
         } else {
@@ -177,7 +219,17 @@ export class PlaybackService {
           if (req.method === 'HEAD') {
             res.end();
           } else {
-            fs.createReadStream(decodedPath, { highWaterMark: 1024 * 1024 }).pipe(res);
+            const stream = fs.createReadStream(decodedPath, { highWaterMark: 2 * 1024 * 1024 });
+            const closeStream = () => stream.destroy();
+            req.on('aborted', closeStream);
+            res.on('close', closeStream);
+            stream.on('error', (err) => {
+              if (!res.headersSent) {
+                res.writeHead(500);
+              }
+              res.destroy(err);
+            });
+            stream.pipe(res);
           }
         }
       } catch (err: any) {
@@ -210,6 +262,9 @@ export class PlaybackService {
       // 1. If local path exists, prioritize local playback
       if (params.localPath && fs.existsSync(params.localPath)) {
         const encoded = encodeURIComponent(params.localPath);
+        const token = crypto.randomBytes(24).toString('hex');
+        this.playbackTokens.set(token, Date.now() + 30 * 60 * 1000);
+        this.prunePlaybackTokens();
 
         // Discover matching subtitle files (.srt, .vtt)
         try {
@@ -232,7 +287,7 @@ export class PlaybackService {
                     const langLabel = isEn ? 'Inglês' : isEs ? 'Espanhol' : 'Português';
                     subtitles.push({
                       label: `${langLabel} (${f})`,
-                      src: `http://127.0.0.1:${this.localServerPort}/sub?file=${encodedSub}&token=${this.sessionToken}`,
+                      src: `http://127.0.0.1:${this.localServerPort}/sub?file=${encodedSub}&token=${token}`,
                       srclang: isEn ? 'en' : isEs ? 'es' : 'pt'
                     });
                   }
@@ -245,7 +300,7 @@ export class PlaybackService {
         }
 
         return {
-          url: `http://127.0.0.1:${this.localServerPort}/video?file=${encoded}&token=${this.sessionToken}`,
+          url: `http://127.0.0.1:${this.localServerPort}/video?file=${encoded}&token=${token}`,
           subtitles
         };
       }
@@ -262,6 +317,7 @@ export class PlaybackService {
           vfsCacheMaxSize: settings.rcloneVfsCacheMaxSize,
           vfsCacheMaxAge: settings.rcloneVfsCacheMaxAge,
           vfsReadChunkSize: settings.rcloneVfsReadChunkSize,
+          vfsReadChunkStreams: settings.rcloneBufferChunkStreams,
           dirCacheTime: settings.rcloneDirCacheTime,
           bandwidthLimit: settings.rcloneBandwidthLimit
         });
@@ -294,6 +350,8 @@ export class PlaybackService {
   public prefetchChunk(url: string, bytesToFetch: number = 16 * 1024 * 1024): void {
     try {
       if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) return;
+      const prefetchKey = `${url}|${bytesToFetch}`;
+      if (this.activePrefetches.has(prefetchKey)) return;
 
       const parsed = new URL(url);
       const isHttps = parsed.protocol === 'https:';
@@ -313,10 +371,18 @@ export class PlaybackService {
       const req = client.request(options, (res) => {
         // Drain incoming stream into void to populate Rclone VFS cache
         res.on('data', () => {});
-        res.on('end', () => {});
+        res.on('end', () => {
+          this.activePrefetches.delete(prefetchKey);
+        });
+        res.on('close', () => {
+          this.activePrefetches.delete(prefetchKey);
+        });
       });
 
-      req.on('error', () => {});
+      this.activePrefetches.set(prefetchKey, req);
+      req.on('error', () => {
+        this.activePrefetches.delete(prefetchKey);
+      });
       req.setTimeout(25000, () => req.destroy());
       req.end();
     } catch {
@@ -393,10 +459,22 @@ export class PlaybackService {
   }
 
   public stop(): void {
+    this.playbackTokens.clear();
+    for (const request of this.activePrefetches.values()) {
+      request.destroy();
+    }
+    this.activePrefetches.clear();
     if (this.localServer) {
       this.localServer.close();
       this.localServer = null;
     }
     this.rcloneService.stopHttpServer();
+  }
+
+  private prunePlaybackTokens(): void {
+    const now = Date.now();
+    for (const [token, expiresAt] of this.playbackTokens) {
+      if (expiresAt < now) this.playbackTokens.delete(token);
+    }
   }
 }

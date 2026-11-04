@@ -24,9 +24,9 @@ export class SettingsRepository {
       startWithWindows: map['startWithWindows'] === 'true',
       dbPath: this.db.getDbPath(),
       rcloneVfsCacheMode: (map['rcloneVfsCacheMode'] as any) || 'full',
-      rcloneVfsCacheMaxSize: map['rcloneVfsCacheMaxSize'] || '25G',
-      rcloneVfsCacheMaxAge: map['rcloneVfsCacheMaxAge'] || '48h',
-      rcloneVfsReadChunkSize: map['rcloneVfsReadChunkSize'] || '8M',
+      rcloneVfsCacheMaxSize: map['rcloneVfsCacheMaxSize'] || '50G',
+      rcloneVfsCacheMaxAge: map['rcloneVfsCacheMaxAge'] || '72h',
+      rcloneVfsReadChunkSize: map['rcloneVfsReadChunkSize'] || '64M',
       rcloneDirCacheTime: map['rcloneDirCacheTime'] || '15m',
       rcloneBandwidthLimit: map['rcloneBandwidthLimit'] || 'off',
       rcloneBufferChunkStreams: parseInt(map['rcloneBufferChunkStreams'] || '4', 10) || 4

@@ -9,6 +9,7 @@ export interface CourseFilter {
   sourceId?: string;
   sortBy?: 'title' | 'last_watched' | 'created_at' | 'progress';
   sortOrder?: 'asc' | 'desc';
+  availability?: 'all' | 'available' | 'unavailable';
 }
 
 export class CoursesRepository {
@@ -36,9 +37,14 @@ export class CoursesRepository {
     const params: any[] = [];
 
     if (filter.search && filter.search.trim()) {
-      sql += ` AND (c.title LIKE ? OR c.description LIKE ? OR c.instructor LIKE ?)`;
+      sql += ` AND (
+        c.title LIKE ? OR c.description LIKE ? OR c.instructor LIKE ? OR
+        l.title LIKE ? OR l.original_path LIKE ? OR EXISTS (
+          SELECT 1 FROM notes n WHERE n.course_id = c.id AND (n.title LIKE ? OR n.content LIKE ?)
+        )
+      )`;
       const term = `%${filter.search.trim()}%`;
-      params.push(term, term, term);
+      params.push(term, term, term, term, term, term, term);
     }
 
     if (filter.categoryId) {
@@ -58,6 +64,12 @@ export class CoursesRepository {
     if (filter.sourceId) {
       sql += ` AND c.source_id = ?`;
       params.push(filter.sourceId);
+    }
+
+    if (filter.availability === 'available') {
+      sql += ` AND (s.source_type = 'gdrive' OR COALESCE(l.is_available, 0) = 1)`;
+    } else if (filter.availability === 'unavailable') {
+      sql += ` AND s.source_type = 'local' AND COALESCE(l.is_available, 0) = 0`;
     }
 
     sql += ` GROUP BY c.id`;

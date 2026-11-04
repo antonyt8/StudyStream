@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { PathSecurity } from '../electron/security/path-validation';
+import { parsePlaybackRange } from '../electron/services/playback.service';
 
 describe('PathSecurity Tests', () => {
   it('should accept valid safe paths', () => {
@@ -31,5 +32,13 @@ describe('PathSecurity Tests', () => {
     expect(sanitized).not.toContain('/');
     expect(sanitized).not.toContain('?');
     expect(sanitized).not.toContain('*');
+  });
+
+  it('should validate playback ranges', () => {
+    expect(parsePlaybackRange('bytes=10-19', 100)).toEqual({ start: 10, end: 19 });
+    expect(parsePlaybackRange('bytes=90-', 100)).toEqual({ start: 90, end: 99 });
+    expect(parsePlaybackRange('bytes=-10', 100)).toEqual({ start: 90, end: 99 });
+    expect(parsePlaybackRange('bytes=100-110', 100)).toBeNull();
+    expect(parsePlaybackRange('bytes=abc-10', 100)).toBeNull();
   });
 });

@@ -60,6 +60,7 @@ export const Player: React.FC<PlayerProps> = ({
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [duration, setDuration] = useState<number>(0);
   const [bufferedEnd, setBufferedEnd] = useState<number>(0);
+  const [bufferAheadSeconds, setBufferAheadSeconds] = useState<number>(0);
   const [volume, setVolume] = useState<number>(1);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
@@ -81,6 +82,9 @@ export const Player: React.FC<PlayerProps> = ({
   const activeWatchSecondsRef = useRef<number>(0);
   const lastTickTimeRef = useRef<number>(Date.now());
   const hasPrefetchedNextRef = useRef<boolean>(false);
+  const lastVideoUiUpdateRef = useRef<number>(0);
+  const bufferingStartedAtRef = useRef<number | null>(null);
+  const bufferingSecondsRef = useRef<number>(0);
 
   // Load course details, media URL, notes, and bookmarks
   useEffect(() => {
@@ -194,14 +198,14 @@ export const Player: React.FC<PlayerProps> = ({
     }
   }, [courseId, lessonId]);
 
-  // Auto save progress every 5 seconds while playing
+  // Save progress periodically without competing with video decoding.
   useEffect(() => {
     if (!isPlaying) return;
     const interval = setInterval(() => {
       if (videoRef.current) {
         saveCurrentProgress(videoRef.current.currentTime, videoRef.current.duration);
       }
-    }, 5000);
+    }, 15000);
 
     return () => clearInterval(interval);
   }, [isPlaying, saveCurrentProgress]);
@@ -472,10 +476,34 @@ export const Player: React.FC<PlayerProps> = ({
       for (let i = 0; i < buf.length; i++) {
         if (buf.start(i) <= cur && cur <= buf.end(i)) {
           setBufferedEnd(buf.end(i));
+          setBufferAheadSeconds(Math.max(0, buf.end(i) - cur));
           return;
         }
       }
       setBufferedEnd(buf.end(buf.length - 1));
+      setBufferAheadSeconds(0);
+    }
+  };
+
+  const handleVideoTimeUpdate = () => {
+    if (!videoRef.current) return;
+
+    const video = videoRef.current;
+    const now = performance.now();
+    const shouldUpdateUi = now - lastVideoUiUpdateRef.current >= 250;
+
+    if (shouldUpdateUi) {
+      lastVideoUiUpdateRef.current = now;
+      setCurrentTime(video.currentTime);
+      updateBufferProgress();
+    }
+
+    const dur = video.duration;
+    if (nextLesson && !hasPrefetchedNextRef.current && dur > 0) {
+      if (video.currentTime / dur > 0.5 || video.currentTime > 60) {
+        hasPrefetchedNextRef.current = true;
+        window.api?.prefetchLesson?.(nextLesson.id).catch(() => {});
+      }
     }
   };
 
@@ -580,8 +608,23 @@ export const Player: React.FC<PlayerProps> = ({
               onClick={togglePlay}
               onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}
-              onWaiting={() => setIsLoadingMedia(true)}
-              onPlaying={() => setIsLoadingMedia(false)}
+              onWaiting={() => {
+                bufferingStartedAtRef.current = performance.now();
+                setIsLoadingMedia(true);
+              }}
+              onStalled={() => {
+                if (bufferingStartedAtRef.current === null) {
+                  bufferingStartedAtRef.current = performance.now();
+                }
+                setIsLoadingMedia(true);
+              }}
+              onPlaying={() => {
+                if (bufferingStartedAtRef.current !== null) {
+                  bufferingSecondsRef.current += (performance.now() - bufferingStartedAtRef.current) / 1000;
+                  bufferingStartedAtRef.current = null;
+                }
+                setIsLoadingMedia(false);
+              }}
               onCanPlay={() => {
                 setIsLoadingMedia(false);
                 if (videoRef.current && isPlaying) {
@@ -590,22 +633,7 @@ export const Player: React.FC<PlayerProps> = ({
               }}
               onLoadedData={handleAutoCover}
               onProgress={updateBufferProgress}
-              onTimeUpdate={() => {
-                if (videoRef.current) {
-                  const cur = videoRef.current.currentTime;
-                  const dur = videoRef.current.duration;
-                  setCurrentTime(cur);
-                  updateBufferProgress();
-
-                  // Silently prefetch the next lesson's initial 16MB into local cache!
-                  if (nextLesson && !hasPrefetchedNextRef.current && dur > 0) {
-                    if (cur / dur > 0.4 || cur > 40) {
-                      hasPrefetchedNextRef.current = true;
-                      window.api?.prefetchLesson?.(nextLesson.id).catch(() => {});
-                    }
-                  }
-                }
-              }}
+              onTimeUpdate={handleVideoTimeUpdate}
               onLoadedMetadata={() => {
                 if (videoRef.current) {
                   setDuration(videoRef.current.duration);
@@ -735,6 +763,12 @@ export const Player: React.FC<PlayerProps> = ({
                     })}
                 </div>
               )}
+            </div>
+            <div className="flex items-center justify-between text-[10px] text-slate-400">
+              <span>{formatTime(currentTime)} / {formatTime(duration)}</span>
+              <span className={bufferAheadSeconds < 5 && isPlaying ? 'text-amber-300' : 'text-emerald-300'}>
+                Buffer: {Math.round(bufferAheadSeconds)}s
+              </span>
             </div>
 
             {/* Bottom Button Row */}

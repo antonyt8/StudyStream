@@ -23,6 +23,7 @@ extraMetadata:
 win:
   sign: null
   signAndEditExecutable: false
+  icon: assets/icon.ico
   target:
     - target: dir
       arch:

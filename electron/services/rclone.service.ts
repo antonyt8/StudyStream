@@ -358,6 +358,7 @@ export class RcloneService {
       vfsCacheMaxSize?: string;
       vfsCacheMaxAge?: string;
       vfsReadChunkSize?: string;
+      vfsReadChunkStreams?: number;
       dirCacheTime?: string;
       bandwidthLimit?: string;
     } = {}
@@ -374,22 +375,25 @@ export class RcloneService {
     this.activePort = port;
     this.currentServerRemote = remotePath;
 
-    const cacheMode = options.vfsCacheMode && options.vfsCacheMode !== 'minimal' ? options.vfsCacheMode : 'full';
+    const cacheMode = options.vfsCacheMode || 'full';
     const dirCacheTime = options.dirCacheTime || '15m';
+    const readChunkSize = options.vfsReadChunkSize || '64M';
+    const readChunkStreams = Math.max(1, Math.min(16, Math.floor(options.vfsReadChunkStreams || 4)));
 
     const args = [
       'serve', 'http', remotePath,
       '--addr', `127.0.0.1:${port}`,
       '--read-only',
       '--vfs-cache-mode', cacheMode,
-      '--vfs-read-ahead', '64M',
-      '--vfs-read-chunk-size', options.vfsReadChunkSize || '8M',
-      '--vfs-read-chunk-size-limit', '128M',
-      '--vfs-read-chunk-streams', '4',
-      '--buffer-size', '32M',
-      '--drive-chunk-size', '32M',
-      '--vfs-read-wait', '10ms',
+      '--vfs-read-ahead', '256M',
+      '--vfs-read-chunk-size', readChunkSize,
+      '--vfs-read-chunk-size-limit', '512M',
+      '--vfs-read-chunk-streams', String(readChunkStreams),
+      '--buffer-size', '128M',
+      '--drive-chunk-size', '64M',
+      '--vfs-read-wait', '5ms',
       '--vfs-handle-caching', '30m',
+      '--vfs-cache-poll-interval', '1m',
       '--vfs-fast-fingerprint',
       '--no-checksum',
       '--no-modtime',
@@ -503,7 +507,8 @@ export class RcloneService {
     executablePath: string = 'rclone',
     remoteFilePath: string,
     localDestPath: string,
-    onProgress: (percent: number, speedBytesPerSec: number, downloaded: number, total: number) => void
+    onProgress: (percent: number, speedBytesPerSec: number, downloaded: number, total: number) => void,
+    signal?: AbortSignal
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
@@ -518,7 +523,10 @@ export class RcloneService {
           localDestPath,
           '--stats', '1s',
           '--stats-log-level', 'NOTICE',
-          '--use-json-log'
+          '--use-json-log',
+          '--retries', '3',
+          '--low-level-retries', '10',
+          '--retries-sleep', '5s'
         ];
 
         const exec = this.resolveExecutable(executablePath);
@@ -526,6 +534,8 @@ export class RcloneService {
           windowsHide: true,
           shell: false
         });
+        const abortHandler = () => child.kill();
+        signal?.addEventListener('abort', abortHandler, { once: true });
 
         child.stderr.on('data', (data) => {
           const text = data.toString();
@@ -547,8 +557,16 @@ export class RcloneService {
           }
         });
 
-        child.on('error', (err) => reject(err));
+        child.on('error', (err) => {
+          signal?.removeEventListener('abort', abortHandler);
+          reject(err);
+        });
         child.on('close', (code) => {
+          signal?.removeEventListener('abort', abortHandler);
+          if (signal?.aborted) {
+            reject(new Error('Download cancelado'));
+            return;
+          }
           if (code === 0) {
             resolve();
           } else {

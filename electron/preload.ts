@@ -90,6 +90,7 @@ const api = {
   listDownloads: () => ipcRenderer.invoke('downloads:list'),
   startDownload: (lessonId: string) => ipcRenderer.invoke('downloads:start', lessonId),
   startBatchDownload: (lessonIds: string[]) => ipcRenderer.invoke('downloads:start-batch', lessonIds),
+  cancelDownload: (id: string) => ipcRenderer.invoke('downloads:cancel', id),
   deleteDownload: (id: string) => ipcRenderer.invoke('downloads:delete', id),
   onDownloadProgress: (callback: (progress: any) => void) => {
     const handler = (_: any, data: any) => callback(data);
@@ -100,6 +101,11 @@ const api = {
     const handler = (_: any, data: any) => callback(data);
     ipcRenderer.on('downloads:completed', handler);
     return () => ipcRenderer.removeListener('downloads:completed', handler);
+  },
+  onDownloadError: (callback: (data: any) => void) => {
+    const handler = (_: any, data: any) => callback(data);
+    ipcRenderer.on('downloads:error', handler);
+    return () => ipcRenderer.removeListener('downloads:error', handler);
   },
 
   // Rclone
@@ -119,6 +125,7 @@ const api = {
   openPath: (targetPath: string) => ipcRenderer.invoke('settings:open-path', targetPath),
   exportUserDataJson: () => ipcRenderer.invoke('settings:export-json'),
   clearCache: () => ipcRenderer.invoke('settings:clear-cache'),
+  openLogs: () => ipcRenderer.invoke('settings:open-logs'),
   resetLocalData: () => ipcRenderer.invoke('settings:reset-local-data'),
 
   // Folder Explorer

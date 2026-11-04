@@ -35,8 +35,13 @@ export class LibraryService {
   private db = DatabaseService.getInstance();
 
   private activeScans = new Map<string, { cancelled: boolean }>();
+  private remoteCacheDir: string;
 
-  private constructor() {}
+  private constructor() {
+    const userData = this.settingsRepo.getAll().dbPath;
+    this.remoteCacheDir = path.join(userData ? path.dirname(userData) : process.cwd(), 'metadata-cache');
+    fs.mkdirSync(this.remoteCacheDir, { recursive: true });
+  }
 
   public static getInstance(): LibraryService {
     if (!LibraryService.instance) {
@@ -155,6 +160,7 @@ export class LibraryService {
     try {
       if (source.source_type === 'local') {
         await this.scanLocalSource(source.root_path, source.id, scanState, progress, onProgress);
+        this.reconcileLocalAvailability(source.id, source.root_path);
       } else {
         await this.scanRemoteSource(source.root_path, source.id, scanState, progress, onProgress);
       }
@@ -174,6 +180,43 @@ export class LibraryService {
     }
 
     return progress;
+  }
+
+  private reconcileLocalAvailability(sourceId: string, rootPath: string): void {
+    if (!fs.existsSync(rootPath)) return;
+    const files = new Map<string, string[]>();
+    try {
+      for (const entry of fs.readdirSync(rootPath, { recursive: true, withFileTypes: true }) as unknown as fs.Dirent[]) {
+        if (!entry.isFile() || !VIDEO_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
+        const fullPath = path.join(entry.parentPath || rootPath, entry.name);
+        const key = `${entry.name.toLowerCase()}:${fs.statSync(fullPath).size}`;
+        const matches = files.get(key) || [];
+        matches.push(fullPath);
+        files.set(key, matches);
+      }
+    } catch {
+      return;
+    }
+
+    const lessons = this.db.all<{ id: string; original_path: string; file_size: number }>(`
+      SELECT l.id, l.original_path, l.file_size
+      FROM lessons l JOIN courses c ON c.id = l.course_id
+      WHERE c.source_id = ?
+    `, [sourceId]);
+    for (const lesson of lessons) {
+      if (fs.existsSync(lesson.original_path)) {
+        this.lessonsRepo.updateAvailability(lesson.id, true);
+        continue;
+      }
+      const key = `${path.basename(lesson.original_path).toLowerCase()}:${lesson.file_size}`;
+      const matches = files.get(key) || [];
+      if (matches.length === 1) {
+        this.lessonsRepo.updateLocalPath(lesson.id, matches[0]);
+        this.lessonsRepo.updateAvailability(lesson.id, true);
+      } else {
+        this.lessonsRepo.updateAvailability(lesson.id, false);
+      }
+    }
   }
 
   /**
@@ -224,6 +267,7 @@ export class LibraryService {
             file_size: les.file_size,
             media_type: les.media_type || 'video/mp4'
           });
+          this.lessonsRepo.updateAvailability(les.id, fs.existsSync(les.original_path));
         }
       }
 
@@ -534,7 +578,17 @@ export class LibraryService {
     const rclonePath = settings.rclonePath || 'rclone';
 
     // List all files recursively in structured JSON
-    const items = await this.rcloneService.listJson(rclonePath, remoteRoot, { recursive: true });
+    const cachePath = path.join(this.remoteCacheDir, `${crypto.createHash('sha1').update(remoteRoot).digest('hex')}.json`);
+    let items: any[];
+    try {
+      items = await this.rcloneService.listJson(rclonePath, remoteRoot, { recursive: true });
+      fs.writeFileSync(cachePath, JSON.stringify({ cachedAt: new Date().toISOString(), items }), 'utf8');
+    } catch (error) {
+      if (!fs.existsSync(cachePath)) throw error;
+      const cached = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+      items = Array.isArray(cached.items) ? cached.items : [];
+      progress.error = 'Rclone indisponível; usando metadados armazenados localmente.';
+    }
 
     // Group items into Course -> Module -> Lessons and Materials
     const courseMap = new Map<string, {

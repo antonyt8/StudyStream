@@ -95,4 +95,10 @@ export class LessonsRepository {
       WHERE id = ?
     `, [localPath, now, lessonId]);
   }
+
+  public updateAvailability(lessonId: string, available: boolean): void {
+    this.db.run(`
+      UPDATE lessons SET is_available = ?, updated_at = ? WHERE id = ?
+    `, [available ? 1 : 0, new Date().toISOString(), lessonId]);
+  }
 }

@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && electron-builder --dir",
-    "build:win": "tsc && vite build && electron-builder --win",
+    "build:win": "tsc && vite build && electron-builder --win && node tools/generate-checksum.mjs",
     "test": "vitest run --config vitest.config.ts"
   },
   "keywords": [

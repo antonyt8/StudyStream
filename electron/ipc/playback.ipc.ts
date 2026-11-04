@@ -13,8 +13,11 @@ export function registerPlaybackIpc(): void {
   const lessonsRepo = new LessonsRepository();
   const sourcesRepo = new SourcesRepository();
   const coursesRepo = new CoursesRepository();
+  const isValidId = (value: unknown): value is string =>
+    typeof value === 'string' && value.length > 0 && value.length <= 160 && /^[\w-]+$/.test(value);
 
   ipcMain.handle('playback:get-url', async (_, lessonId: string) => {
+    if (!isValidId(lessonId)) return { url: '', error: 'Identificador de aula inválido' };
     const lesson = lessonsRepo.getById(lessonId);
     if (!lesson) {
       return { url: '', error: 'Aula não encontrada' };
@@ -47,6 +50,14 @@ export function registerPlaybackIpc(): void {
     completed?: boolean;
     autoCompleteThreshold?: number;
   }) => {
+    if (!isValidId(data?.lessonId) || !isValidId(data?.courseId)) {
+      throw new Error('Identificador de progresso inválido');
+    }
+    if (![data.positionSeconds, data.durationSeconds].every(Number.isFinite) ||
+        data.positionSeconds < 0 || data.durationSeconds < 0 ||
+        data.positionSeconds > data.durationSeconds + 1) {
+      throw new Error('Valores de progresso inválidos');
+    }
     return progressRepo.saveProgress(data);
   });
 
@@ -55,6 +66,9 @@ export function registerPlaybackIpc(): void {
     courseId: string;
     completed: boolean;
   }) => {
+    if (!isValidId(data?.lessonId) || !isValidId(data?.courseId) || typeof data.completed !== 'boolean') {
+      throw new Error('Dados de conclusão inválidos');
+    }
     progressRepo.markLessonCompleted(data.lessonId, data.courseId, data.completed);
     return progressRepo.getByLesson(data.lessonId);
   });
@@ -71,6 +85,7 @@ export function registerPlaybackIpc(): void {
   });
 
   ipcMain.handle('playback:get-lesson-progress', async (_, lessonId: string) => {
+    if (!isValidId(lessonId)) throw new Error('Identificador de aula inválido');
     return progressRepo.getByLesson(lessonId);
   });
 
@@ -91,8 +106,8 @@ export function registerPlaybackIpc(): void {
         remoteName: source.remote_name
       });
 
-      if (mediaRes.url && mediaRes.url.startsWith('http')) {
-        playbackService.prefetchChunk(mediaRes.url, 16 * 1024 * 1024);
+      if (mediaRes.url && mediaRes.url.startsWith('http') && source.source_type === 'gdrive') {
+        playbackService.prefetchChunk(mediaRes.url, 32 * 1024 * 1024);
         return { success: true };
       }
       return { success: false };

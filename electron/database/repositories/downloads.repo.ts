@@ -24,6 +24,18 @@ export class DownloadsRepository {
     return list.find(d => d.id === id) || null;
   }
 
+  public getActiveByLesson(lessonId: string): DownloadItem | null {
+    return this.db.get<DownloadItem>(`
+      SELECT d.*, l.title AS lesson_title, c.title AS course_title
+      FROM downloads d
+      JOIN lessons l ON l.id = d.lesson_id
+      JOIN courses c ON c.id = d.course_id
+      WHERE d.lesson_id = ? AND d.status IN ('pending', 'downloading', 'paused', 'error')
+      ORDER BY d.updated_at DESC
+      LIMIT 1
+    `, [lessonId]);
+  }
+
   public create(data: {
     lessonId: string;
     courseId: string;

@@ -14,23 +14,26 @@ import { registerRcloneIpc } from './ipc/rclone.ipc';
 import { registerSettingsIpc } from './ipc/settings.ipc';
 import { registerExplorerIpc } from './ipc/explorer.ipc';
 import { PlaybackService } from './services/playback.service';
+import { AppLogger } from './services/app-logger';
 
 // ESM dirname resolution
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const logger = AppLogger.getInstance();
 
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
+  logger.error('Uncaught exception', err);
 });
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled Rejection:', reason);
+  logger.error('Unhandled promise rejection', reason);
 });
 
 // Hardware-accelerated video decoding & GPU rasterization switches
 app.commandLine.appendSwitch('enable-accelerated-video-decode');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport');
 

@@ -36,6 +36,7 @@ export const Library: React.FC<LibraryProps> = ({
   const [status, setStatus] = useState<string>(initialStatus || (initialCompletedOnly ? 'completed' : 'all'));
   const [favoritesOnly, setFavoritesOnly] = useState<boolean>(initialFavoritesOnly);
   const [sourceId, setSourceId] = useState<string>('');
+  const [availability, setAvailability] = useState<'all' | 'available' | 'unavailable'>('all');
   const [selectedListId, setSelectedListId] = useState<string>('');
   const [sortBy, setSortBy] = useState<'title' | 'last_watched' | 'created_at' | 'progress'>('title');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -60,6 +61,7 @@ export const Library: React.FC<LibraryProps> = ({
             status: status !== 'all' ? status : undefined,
             favoritesOnly,
             sourceId: sourceId || undefined,
+            availability,
             sortBy,
             sortOrder
           });
@@ -75,7 +77,7 @@ export const Library: React.FC<LibraryProps> = ({
 
   useEffect(() => {
     loadData();
-  }, [search, status, favoritesOnly, sourceId, selectedListId, sortBy, sortOrder]);
+  }, [search, status, favoritesOnly, sourceId, availability, selectedListId, sortBy, sortOrder]);
 
   const handleToggleFavorite = async (id: string, e: React.MouseEvent) => {
     try {
@@ -161,6 +163,19 @@ export const Library: React.FC<LibraryProps> = ({
               </select>
             </div>
           )}
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-400">Disponibilidade:</span>
+            <select
+              value={availability}
+              onChange={(e) => setAvailability(e.target.value as 'all' | 'available' | 'unavailable')}
+              className="bg-background border border-border text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-primary-500"
+            >
+              <option value="all">Todos</option>
+              <option value="available">Disponíveis</option>
+              <option value="unavailable">Ausentes</option>
+            </select>
+          </div>
 
           {/* Custom Lists Select */}
           {customLists.length > 0 && (
