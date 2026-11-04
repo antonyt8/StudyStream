@@ -5,10 +5,16 @@ import {
   Play,
   Pause,
   RotateCcw,
+  RotateCw,
   Volume2,
   VolumeX,
   Maximize2,
   Minimize2,
+  ChevronDown,
+  ChevronRight,
+  PanelRightClose,
+  PanelRightOpen,
+  Settings,
   SkipBack,
   SkipForward,
   BookOpen,
@@ -66,9 +72,12 @@ export const Player: React.FC<PlayerProps> = ({
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [controlsVisible, setControlsVisible] = useState<boolean>(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+  const [isPlaybackSettingsOpen, setIsPlaybackSettingsOpen] = useState<boolean>(false);
 
   // Sidebar & Study state
   const [activeTab, setActiveTab] = useState<'lessons' | 'notes' | 'bookmarks'>('lessons');
+  const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({});
   const [notes, setNotes] = useState<Note[]>([]);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [newNoteContent, setNewNoteContent] = useState<string>('');
@@ -323,6 +332,9 @@ export const Player: React.FC<PlayerProps> = ({
   const currentLesson = allLessons[currentIndex];
   const prevLesson = currentIndex > 0 ? allLessons[currentIndex - 1] : null;
   const nextLesson = currentIndex >= 0 && currentIndex < allLessons.length - 1 ? allLessons[currentIndex + 1] : null;
+  const currentModuleId = courseData?.modules.find((module) =>
+    module.lessons?.some((lesson) => lesson.id === lessonId)
+  )?.id;
 
   const handleNextLesson = () => {
     if (nextLesson) {
@@ -538,7 +550,7 @@ export const Player: React.FC<PlayerProps> = ({
           </div>
         </div>
 
-        {/* Speed & External Player Buttons */}
+        {/* External Player Button */}
         <div className="flex items-center gap-2">
           {/* External Player (VLC / MPV / Default) Button */}
           <button
@@ -555,20 +567,6 @@ export const Player: React.FC<PlayerProps> = ({
             <span className="hidden sm:inline">Player Externo (VLC)</span>
           </button>
 
-          {/* Speed Selector */}
-          <div className="flex items-center bg-white/10 rounded-lg p-0.5 border border-white/10">
-            {[1, 1.25, 1.5, 2].map((sp) => (
-              <button
-                key={sp}
-                onClick={() => handleSpeedChange(sp)}
-                className={`px-2 py-1 rounded text-xs font-bold transition-colors ${
-                  playbackSpeed === sp ? 'bg-primary-600 text-white' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                {sp}x
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
@@ -676,6 +674,32 @@ export const Player: React.FC<PlayerProps> = ({
               controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
             }`}
           >
+            {isPlaybackSettingsOpen && (
+              <div className="absolute bottom-20 right-5 w-48 rounded-xl border border-white/10 bg-slate-950/95 p-2 shadow-2xl backdrop-blur-md">
+                <div className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Velocidade de reprodução
+                </div>
+                <div className="grid grid-cols-2 gap-1">
+                  {[1, 1.25, 1.5, 2].map((sp) => (
+                    <button
+                      key={sp}
+                      onClick={() => {
+                        handleSpeedChange(sp);
+                        setIsPlaybackSettingsOpen(false);
+                      }}
+                      className={`rounded-lg px-2 py-2 text-xs font-bold transition-colors ${
+                        playbackSpeed === sp
+                          ? 'bg-primary-600 text-white'
+                          : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      {sp}x
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Timeline Range Slider with Visual Interactive Markers & Buffer Bar */}
             <div className="relative flex items-center group/slider py-2">
               {/* Pre-buffered range bar (Netflix / YouTube style) */}
@@ -784,6 +808,19 @@ export const Player: React.FC<PlayerProps> = ({
                   <SkipBack className="w-5 h-5" />
                 </button>
 
+                {/* Seek 10 seconds backward */}
+                <button
+                  onClick={() => seekDelta(-10)}
+                  className="p-2 text-slate-300 hover:text-white transition-colors"
+                  title="Voltar 10 segundos"
+                  aria-label="Voltar 10 segundos"
+                >
+                  <span className="relative flex items-center justify-center">
+                    <RotateCcw className="w-5 h-5" />
+                    <span className="absolute text-[8px] font-bold">10</span>
+                  </span>
+                </button>
+
                 {/* Play / Pause */}
                 <button
                   onClick={togglePlay}
@@ -791,6 +828,19 @@ export const Player: React.FC<PlayerProps> = ({
                   title="Reproduzir / Pausar (Espaço)"
                 >
                   {isPlaying ? <Pause className="w-5 h-5 fill-white" /> : <Play className="w-5 h-5 fill-white ml-0.5" />}
+                </button>
+
+                {/* Seek 10 seconds forward */}
+                <button
+                  onClick={() => seekDelta(10)}
+                  className="p-2 text-slate-300 hover:text-white transition-colors"
+                  title="Avançar 10 segundos"
+                  aria-label="Avançar 10 segundos"
+                >
+                  <span className="relative flex items-center justify-center">
+                    <RotateCw className="w-5 h-5" />
+                    <span className="absolute text-[8px] font-bold">10</span>
+                  </span>
                 </button>
 
                 {/* Next Lesson */}
@@ -859,6 +909,19 @@ export const Player: React.FC<PlayerProps> = ({
                   <Tv className="w-5 h-5" />
                 </button>
 
+                {/* Playback Settings */}
+                <button
+                  onClick={() => setIsPlaybackSettingsOpen((open) => !open)}
+                  className={`p-2 transition-colors rounded ${
+                    isPlaybackSettingsOpen ? 'text-primary-400 bg-white/10' : 'text-slate-300 hover:text-white'
+                  }`}
+                  title="Configurações de reprodução"
+                  aria-label="Configurações de reprodução"
+                  aria-expanded={isPlaybackSettingsOpen}
+                >
+                  <Settings className="w-5 h-5" />
+                </button>
+
                 {/* Fullscreen */}
                 <button
                   onClick={toggleFullscreen}
@@ -872,10 +935,22 @@ export const Player: React.FC<PlayerProps> = ({
           </div>
         </div>
 
+        {!isSidebarOpen && (
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            className="absolute right-4 top-4 z-40 rounded-lg border border-white/10 bg-black/70 p-2 text-slate-300 shadow-lg backdrop-blur-sm transition-colors hover:bg-white/10 hover:text-white"
+            title="Mostrar painel lateral"
+            aria-label="Mostrar painel lateral"
+          >
+            <PanelRightOpen className="h-5 w-5" />
+          </button>
+        )}
+
         {/* Study Sidebar (Lessons, Notes, Bookmarks) */}
+        {isSidebarOpen && (
         <aside className="w-80 bg-background-subtle border-l border-border flex flex-col h-full z-20 shrink-0">
           {/* Tabs Header */}
-          <div className="grid grid-cols-3 border-b border-border bg-background p-1.5 gap-1">
+          <div className="relative grid grid-cols-3 border-b border-border bg-background p-1.5 gap-1 pr-10">
             <button
               onClick={() => setActiveTab('lessons')}
               className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-colors ${
@@ -905,6 +980,15 @@ export const Player: React.FC<PlayerProps> = ({
               <BookmarkIcon className="w-3.5 h-3.5" />
               <span>Marcadores</span>
             </button>
+
+            <button
+              onClick={() => setIsSidebarOpen(false)}
+              className="absolute right-1.5 top-1.5 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+              title="Minimizar painel lateral"
+              aria-label="Minimizar painel lateral"
+            >
+              <PanelRightClose className="h-4 w-4" />
+            </button>
           </div>
 
           {/* Tab 1: Lessons List */}
@@ -912,10 +996,24 @@ export const Player: React.FC<PlayerProps> = ({
             <div className="flex-1 overflow-y-auto divide-y divide-border/40 p-2 space-y-3">
               {courseData?.modules.map((mod, modIdx) => (
                 <div key={mod.id} className="space-y-1">
-                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1">
-                    Módulo {modIdx + 1}: {mod.title}
-                  </div>
-                  {mod.lessons?.map((les, idx) => {
+                  <button
+                    type="button"
+                    onClick={() => setExpandedModules((previous) => ({
+                      ...previous,
+                      [mod.id]: !(previous[mod.id] ?? mod.id === currentModuleId)
+                    }))}
+                    className="flex w-full items-center gap-1.5 border-b border-border/70 px-2 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-slate-400 transition-colors hover:text-white"
+                    aria-expanded={expandedModules[mod.id] ?? mod.id === currentModuleId}
+                    title={`${(expandedModules[mod.id] ?? mod.id === currentModuleId) ? 'Minimizar' : 'Expandir'} módulo`}
+                  >
+                    {(expandedModules[mod.id] ?? mod.id === currentModuleId) ? (
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-primary-400" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+                    )}
+                    <span className="min-w-0">{`Módulo ${modIdx + 1}: ${mod.title}`}</span>
+                  </button>
+                  {(expandedModules[mod.id] ?? mod.id === currentModuleId) && mod.lessons?.map((les, idx) => {
                     const isCurrent = les.id === lessonId;
                     const isCompleted = les.progress?.completed === 1;
                     const isPdf = les.media_type === 'application/pdf' || les.original_path.toLowerCase().endsWith('.pdf');
@@ -1158,6 +1256,7 @@ export const Player: React.FC<PlayerProps> = ({
             </div>
           )}
         </aside>
+        )}
       </div>
 
       {/* Zoom Snapshot Modal */}
